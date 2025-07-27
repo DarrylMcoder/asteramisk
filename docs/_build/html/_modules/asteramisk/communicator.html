@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>asteramisk.communicator &#8212; Asteramisk 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=f281be69"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for asteramisk.communicator</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">panoramisk</span><span class="w"> </span><span class="kn">import</span> <span class="n">Manager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">panoramisk.actions</span><span class="w"> </span><span class="kn">import</span> <span class="n">Action</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asteramisk.ui</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asteramisk.exceptions</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Communicator">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Communicator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for making calls and text message conversations.</span>
+<span class="sd">    </span>
+<span class="sd">    Example usage:</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        communicator = await Communicator.create()</span>
+<span class="sd">        try:</span>
+<span class="sd">            await communicator.make_call(recipient_number=&quot;1234567890&quot;)</span>
+<span class="sd">            await communicator.send_message(recipient_number=&quot;1234567890&quot;, message=&quot;Hello world!&quot;)</span>
+<span class="sd">            await communicator.send_receive(recipient_number=&quot;1234567890&quot;, message=&quot;Hello world!&quot;)</span>
+<span class="sd">        finally:</span>
+<span class="sd">            await communicator.close()</span>
+
+<span class="sd">    Can be used as a context manager.</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        async with Communicator.create() as communicator:</span>
+<span class="sd">            await communicator.make_call(recipient_number=&quot;1234567890&quot;)</span>
+<span class="sd">            await communicator.send_message(recipient_number=&quot;1234567890&quot;, message=&quot;Hello world!&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Communicator.</span>
+<span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
+<span class="sd">        :type callerid_number: str</span>
+<span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
+<span class="sd">        :type callerid_name: str</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_manager</span> <span class="o">=</span> <span class="n">Manager</span><span class="p">(</span>
+            <span class="n">host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
+            <span class="n">port</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PORT</span><span class="p">,</span>
+            <span class="n">username</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_USER</span><span class="p">,</span>
+            <span class="n">secret</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PASS</span><span class="p">,</span>
+            <span class="n">ssl</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="Communicator.create">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.create">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">instance</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">instance</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">instance</span></div>
+
+
+<div class="viewcode-block" id="Communicator.connect">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.connect">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manager</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Communicator.close">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.close">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aenter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aexit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">traceback</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Communicator.make_call">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.make_call">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                        <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">channel</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">application</span><span class="o">=</span><span class="s2">&quot;AGI&quot;</span><span class="p">,</span>
+                        <span class="n">data</span><span class="o">=</span><span class="s2">&quot;agi:async&quot;</span><span class="p">,</span>
+                        <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot; </span>
+<span class="sd">        Makes a call to the recipient and returns a VoiceUI object.</span>
+<span class="sd">        :param recipient_number: The number to call. Uses PJSIP with voip.ms</span>
+<span class="sd">        :type recipient_number: str</span>
+<span class="sd">        :param channel: The channel to dial for the call. Mutually exclusive with recipient_number</span>
+<span class="sd">        :type channel: str</span>
+<span class="sd">        :param application: The application to execute at our end of the call.</span>
+<span class="sd">        :type application: str</span>
+<span class="sd">        :param data: The data to pass to the application.</span>
+<span class="sd">        :type data: str</span>
+<span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
+<span class="sd">        :type callerid_number: str</span>
+<span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
+<span class="sd">        :type callerid_name: str</span>
+<span class="sd">        :return: An asteramisk.ui.VoiceUI object.</span>
+<span class="sd">        :rtype: asteramisk.ui.VoiceUI</span>
+<span class="sd">        :raises ValueError: If neither recipient_number or channel is provided or both are provided</span>
+<span class="sd">        :raises asteramisk.exceptions.CallFailedException: If the call fails</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">recipient_number</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">channel</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Must provide either recipient_number or channel&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recipient_number</span> <span class="ow">and</span> <span class="n">channel</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot provide both recipient_number and channel&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_number</span><span class="p">:</span>
+            <span class="n">callerid_number</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_name</span><span class="p">:</span>
+            <span class="n">callerid_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span>
+
+        <span class="k">if</span> <span class="n">recipient_number</span><span class="p">:</span>
+            <span class="n">channel</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;PJSIP/</span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2">@</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_ENDPOINT</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">callerid_number</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">10</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Caller ID number </span><span class="si">{</span><span class="n">callerid_number</span><span class="si">}</span><span class="s2"> is not 10 digits. It will not work. Will be replaced with default number.&quot;</span><span class="p">)</span>
+            <span class="n">callerid_number</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Making call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2"> on channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">originate_action</span> <span class="o">=</span> <span class="n">Action</span><span class="p">({</span>
+            <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;Originate&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Channel&quot;</span><span class="p">:</span> <span class="n">channel</span><span class="p">,</span>
+            <span class="s2">&quot;Application&quot;</span><span class="p">:</span> <span class="n">application</span><span class="p">,</span>
+            <span class="s2">&quot;Data&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">,</span>
+            <span class="s2">&quot;CallerID&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">callerid_name</span><span class="si">}</span><span class="s2"> &lt;</span><span class="si">{</span><span class="n">callerid_number</span><span class="si">}</span><span class="s2">&gt;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Async&quot;</span><span class="p">:</span> <span class="kc">True</span>  <span class="c1"># This seems to be required.</span>
+        <span class="p">})</span>
+
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">originate_action</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Originate AMI response&quot;</span><span class="p">,</span> <span class="n">response</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">response</span><span class="p">:</span>
+            <span class="c1"># Check if the call failed</span>
+            <span class="k">if</span> <span class="s2">&quot;Event&quot;</span> <span class="ow">in</span> <span class="n">event</span> <span class="ow">and</span> <span class="s2">&quot;Response&quot;</span> <span class="ow">in</span> <span class="n">event</span> <span class="ow">and</span> \
+                    <span class="n">event</span><span class="p">[</span><span class="s2">&quot;Event&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;OriginateResponse&quot;</span> <span class="ow">and</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;Response&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Failure&quot;</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to make call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Get the channel</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">channel</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to get channel for call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">channel</span>
+
+        <span class="n">ui</span> <span class="o">=</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ui</span></div>
+
+
+<div class="viewcode-block" id="Communicator.make_text">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.make_text">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_text</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                        <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span>
+                        <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts a new messaging conversation with the recipient.</span>
+<span class="sd">        :param recipient_number: The number to message.</span>
+<span class="sd">        :type recipient_number: str</span>
+<span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
+<span class="sd">        :type callerid_number: str</span>
+<span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
+<span class="sd">        :type callerid_name: str</span>
+<span class="sd">        :return: An asteramisk.ui.TextUI object.</span>
+<span class="sd">        :rtype: asteramisk.ui.TextUI</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Communicator.make_conversation">
+<a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.make_conversation">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_conversation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                                <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                                <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span>
+                                <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">,</span>
+                                <span class="n">contact_method</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">,</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts a new messaging conversation with the recipient.</span>
+<span class="sd">        :param recipient_number: The number to contact.</span>
+<span class="sd">        :type recipient_number: str</span>
+<span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
+<span class="sd">        :type callerid_number: str</span>
+<span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
+<span class="sd">        :type callerid_name: str</span>
+<span class="sd">        :param contact_method: The contact method to use. Either &quot;call&quot; or &quot;text&quot;</span>
+<span class="sd">        :type contact_method: str</span>
+<span class="sd">        :return: An asteramisk.ui.VoiceUI or asteramisk.ui.TextUI object.</span>
+<span class="sd">        :rtype: Union[asteramisk.ui.VoiceUI, asteramisk.ui.TextUI]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">contact_method</span> <span class="o">==</span> <span class="s2">&quot;call&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">make_call</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">contact_method</span> <span class="o">==</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">make_text</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown contact method </span><span class="si">{</span><span class="n">contact_method</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Asteramisk</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../intro.html">Introduction to Asteramisk</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Darryl Martin.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
