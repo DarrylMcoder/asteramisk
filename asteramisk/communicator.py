@@ -40,6 +40,7 @@ class Communicator:
         :type callerid_number: str
         :param callerid_name: The name to use for the caller ID.
         :type callerid_name: str
+        :return: Communicator
         """
         self._callerid_number = callerid_number
         self._callerid_name = callerid_name

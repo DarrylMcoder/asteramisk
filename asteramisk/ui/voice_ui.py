@@ -23,17 +23,24 @@ class VoiceUI(UI):
         self.voice = voice
         super().__init__()
 
+    @property
+    def ui_type(self):
+        return self.UIType.VOICE
+
     async def send_command(self, command):
         """
         Sends an AGI command to Asterisk
-        :param command: The command to send
+        :param: command: Command to send
+        :return: dict: Result of the AGI command
         """
         return await self.agi.send_command(command)
 
     async def answer(self):
+        """ Answers the call """
         await self.send_command('ANSWER')
 
     async def hangup(self):
+        """ Hangs up the call """
         await self.send_command('HANGUP')
 
     async def _get_data(self, filename, num_digits=None) -> str:
@@ -50,7 +57,7 @@ class VoiceUI(UI):
             num_digits = 1
         else:
             timeout = 2000
-        response = await self.agi.send_command(f"GET DATA {filename} {timeout} {num_digits}")
+        response = await self.send_command(f"GET DATA {filename} {timeout} {num_digits}")
         if 'error' in response and 'msg' in response:
             raise AGIException(response['msg'])
         digits = response['result'][0]
