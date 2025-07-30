@@ -16,6 +16,11 @@ Asteramisk documentation
    usage
    api
 
+LICENSE
+=======
+
+The `Asteramisk` library is released under the [MIT License](https://opensource.org/licenses/MIT).
+
 Indices and tables
 ==================
 * :ref:`genindex`

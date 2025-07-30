@@ -37,7 +37,8 @@ Each call to a handler will be handled by a separate coroutine.
             await server.register_extension('1234567890', call_handler=my_call_handler, text_handler=my_text_handler)
             await server.serve_forever()
 
-        asyncio.run(main())
+        if __name__ == '__main__':
+            asyncio.run(main())
 
  Inside your call and text message handlers, you can use the `UI` object to control the call or text conversation.
  Use the `say` method to send text to the caller.
@@ -47,4 +48,3 @@ Each call to a handler will be handled by a separate coroutine.
  Use the `gather` method to gather digits from the caller.
  Use the `menu` method to present a menu to the caller and handle the user's choice.
  Use the `prompt` method to prompt the caller for input.
- Use the `record` method to record audio from the caller.

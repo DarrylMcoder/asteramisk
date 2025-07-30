@@ -74,10 +74,12 @@
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Initializes the Communicator.</span>
-<span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
-<span class="sd">        :type callerid_number: str</span>
-<span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
-<span class="sd">        :type callerid_name: str</span>
+<span class="sd">        Args:</span>
+<span class="sd">            callerid_number(str): The number to use for the caller ID.</span>
+<span class="sd">            callerid_name(str): The name to use for the caller ID.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Communicator</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span>
