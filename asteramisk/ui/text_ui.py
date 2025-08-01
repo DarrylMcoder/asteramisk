@@ -1,8 +1,6 @@
-from typing import Any
 from asteramisk.config import config
 from asteramisk.internal.message_broker import MessageBroker
 from .ui import UI
-from .voice_ui import VoiceUI
 
 class TextUI(UI):
     def __init__(self, recipient_number, our_callerid_number=config.SYSTEM_PHONE_NUMBER, our_callerid_name=config.SYSTEM_NAME):
@@ -17,12 +15,12 @@ class TextUI(UI):
         return self.UIType.TEXT
     
     async def answer(self):
-        """ \"Answer\" the call. Simply for compatibility with other UIs. Does nothing on TextUI. """
-        pass
+        """ \"Answer\" the call. Mostly for compatibility with other UIs. Connects to the broker. """
+        await self._broker.connect()
 
     async def hangup(self):
-        """ \"Hangup\" the call. Simply for compatibility with other UIs. Does nothing on TextUI. """
-        pass
+        """ \"Hangup\" the call. Mostly for compatibility with other UIs. Closes the broker. """
+        await self._broker.close()
     
     async def say(self, text):
         """

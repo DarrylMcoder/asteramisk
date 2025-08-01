@@ -6,7 +6,7 @@ import panoramisk.manager
 
 import asteramisk.ui
 from asteramisk.config import config
-from asteramisk.internal import MessageBroker
+from asteramisk.internal.message_broker import MessageBroker
 
 import logging
 logger = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ class Server:
                 ssl=False
             )
 
+        await manager.connect()
         await manager.send_action(registration_action)
 
     async def serve_forever(self):

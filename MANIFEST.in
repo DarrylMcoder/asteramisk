@@ -1,0 +1,4 @@
+include docs/index.rst
+include docs/intro.rst
+include docs/usage.rst
+include docs/api.rst

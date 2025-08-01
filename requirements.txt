@@ -1,0 +1,8 @@
+aiofiles==24.1.0
+aiolimiter==1.2.1
+google-cloud-speech==2.33.0
+google-cloud-texttospeech==2.27.0
+gTTS==2.5.4
+panoramisk==1.4
+pydub==0.25.1
+setuptools==80.9.0

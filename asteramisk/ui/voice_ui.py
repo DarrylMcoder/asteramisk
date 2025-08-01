@@ -37,11 +37,13 @@ class VoiceUI(UI):
 
     async def answer(self):
         """ Answers the call """
+        await self.agi.connect()
         await self.send_command('ANSWER')
 
     async def hangup(self):
         """ Hangs up the call """
         await self.send_command('HANGUP')
+        await self.agi.close()
 
     async def _get_data(self, filename, num_digits=None) -> str:
         """

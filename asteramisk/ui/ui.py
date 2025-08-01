@@ -1,8 +1,7 @@
 from typing import Any
 
-from asteramisk.config import config
-from .voice_ui import VoiceUI
-from .text_ui import TextUI
+import logging
+logger = logging.getLogger(__name__)
 
 class UI:
     """
@@ -92,13 +91,13 @@ class UI:
         # Prompt the user to select an option
         # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
         if self.ui_type == self.UIType.VOICE:
-            num_digits = max([len(str(i)) for i in callbacks.keys()])
+            num_digits = max([len(str(i)) for i in local_callbacks.keys()])
             selected = await self.gather(text, num_digits)
         elif self.ui_type == self.UIType.TEXT:
             selected = await self.prompt(text)
-        if selected not in callbacks:
+        if selected not in local_callbacks:
             return await self.menu("That option is not available, please try again", callbacks, voice_callbacks, text_callbacks)
-        return await callbacks[selected]()
+        return await local_callbacks[selected]()
 
     async def select(self, text, options: dict[str, Any], voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None):
         """
@@ -125,10 +124,10 @@ class UI:
         # Prompt the user to select an option
         # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
         if self.ui_type == self.UIType.VOICE:
-            num_digits = max([len(str(i)) for i in options.keys()])
+            num_digits = max([len(str(i)) for i in local_options.keys()])
             selected = await self.gather(text, num_digits)
         elif self.ui_type == self.UIType.TEXT:
             selected = await self.prompt(text)
-        if selected not in options:
+        if selected not in local_options:
             return await self.select("That option is not available, please try again", options, voice_options, text_options)
-        return options[selected]
+        return local_options[selected]
