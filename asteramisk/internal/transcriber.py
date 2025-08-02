@@ -6,10 +6,6 @@ class TranscribeEngine:
     _instance = None
 
     def __init__(self):
-        if not TranscribeEngine._instance:
-            TranscribeEngine._instance = self
-        else:
-            return TranscribeEngine._instance
         self.thread = None
         self.transcript = None
         self.exception = None

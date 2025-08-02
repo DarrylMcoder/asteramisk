@@ -12,9 +12,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Server:
-    def __init__(self, host=config.AGI_SERVER_HOST, port=config.AGI_SERVER_PORT):
+    def __init__(self, host=config.AGI_SERVER_HOST, bindaddr=config.AGI_SERVER_BINDADDR, port=config.AGI_SERVER_PORT):
         self.host = host
+        self.bindaddr = bindaddr
         self.port = port
+        if not self.host:
+            raise ValueError("Must provide a host. Either set the AGI_SERVER_HOST environment variable, set config.AGI_SERVER_HOST or pass it to the constructor")
+        if not self.bindaddr:
+            raise ValueError("Must provide a bind address. Either set the AGI_SERVER_BINDADDR environment variable, set config.AGI_SERVER_BINDADDR or pass it to the constructor")
+        if not self.port:
+            raise ValueError("Must provide a port. Either set the AGI_SERVER_PORT environment variable, set config.AGI_SERVER_PORT or pass it to the constructor")
 
         self.handlers = {}
 
@@ -51,20 +58,21 @@ class Server:
             "Extension": extension,
             "Priority": 1,
             "Application": "AGI",
-            "ApplicationData": f"agi://{config.AGI_SERVER_HOST}:{config.AGI_SERVER_PORT}/{extension_type}_handler",
+            "ApplicationData": f"agi://{self.host}:{self.port}/{extension_type}_handler",
             "Replace": "yes"
         })
 
         manager = panoramisk.manager.Manager(
                 host=config.ASTERISK_HOST,
                 port=config.ASTERISK_AMI_PORT,
-                user=config.ASTERISK_AMI_USER,
-                password=config.ASTERISK_AMI_PASS,
+                username=config.ASTERISK_AMI_USER,
+                secret=config.ASTERISK_AMI_PASS,
                 ssl=False
             )
 
         await manager.connect()
         await manager.send_action(registration_action)
+        manager.close()
 
     async def serve_forever(self):
         # Error if not running as root
@@ -74,7 +82,7 @@ class Server:
         fa_app = panoramisk.fast_agi.Application()
         fa_app.add_route("call_handler", self._call_request_handler)
         fa_app.add_route("text_handler", self._message_request_handler)
-        server = await asyncio.start_server(fa_app.handler, self.host, self.port)
+        server = await asyncio.start_server(fa_app.handler, self.bindaddr, self.port)
         logger.info('Asteramisk server started on {}'.format(server.sockets[0].getsockname()))
 
         try:
@@ -93,9 +101,14 @@ class Server:
         channel = request.headers['agi_channel']
         extension = request.headers['agi_extension']
 
+        # Put the channel into Async AGI mode
+        await request.send_command("EXEC AGI agi:async")
+
         ui = asteramisk.ui.VoiceUI(channel)
+        logger.info("Created VoiceUI")
         call_handler, _ = self.handlers[extension]
 
+        logger.info(f"Calling handler for extension {extension}")
         await call_handler(ui)
 
     async def _message_request_handler(self, request: panoramisk.fast_agi.Request):
