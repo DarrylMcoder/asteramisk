@@ -11,9 +11,9 @@ class AsyncAsteriskGatewayInterface(AsteriskGatewayInterface):
     Fully compatible and interchangeable with the synchronous AGI interface
     :param channel: Channel name. The channel must already have been put into Async AGI mode via AGI(agi:async) in the dialplan or AMI command
     """
-    def __init__(self, channel):
+    async def __create__(self, channel):
         self._channel = channel
-        super().__init__()
+        super().__create__()
 
     @property
     def channel(self):

@@ -1,16 +1,23 @@
 import os
-from dataclasses import dataclass
 
-@dataclass
 class Config:
     ASTERISK_HOST = os.getenv('ASTERISK_HOST', '127.0.0.1')
     """ The host of the asterisk server """
+
     ASTERISK_AMI_PORT = os.getenv('ASTERISK_AMI_PORT', '5038')
     """ The port where asterisk is listening for AMI commands. Default is 5038 """
     ASTERISK_AMI_USER = os.getenv('ASTERISK_AMI_USER', 'asteramisk')
     """ The username to use when connecting to Asterisk Manager Interface. This needs to be configured in manager.conf on the asterisk server """
     ASTERISK_AMI_PASS = os.getenv('ASTERISK_AMI_PASS', 'asteramisk')
     """ The password to use when connecting to Asterisk Manager Interface. This needs to be configured in manager.conf on the asterisk server """
+
+    ASTERISK_ARI_PORT = os.getenv('ASTERISK_ARI_PORT', '8088')
+    """ The port where the Asterisk REST API is listening. Default is 8088 """
+    ASTERISK_ARI_USER = os.getenv('ASTERISK_ARI_USER')
+    """ The username to use when connecting to Asterisk REST API. This needs to be configured in ari.conf on the asterisk server """
+    ASTERISK_ARI_PASS = os.getenv('ASTERISK_ARI_PASS')
+    """ The password to use when connecting to Asterisk REST API. This needs to be configured in ari.conf on the asterisk server """
+
     ASTERISK_INCOMING_CALL_CONTEXT = os.getenv('ASTERISK_INCOMING_CALL_CONTEXT', 'asteramisk-incoming-call')
     """ The context to which your Asterisk PSTN endpoint will send incoming calls. This is the context=your_context line in pjsip.conf under your PSTN endpoint configuration """
     ASTERISK_INCOMING_TEXT_CONTEXT = os.getenv('ASTERISK_INCOMING_TEXT_CONTEXT', 'asteramisk-incoming-text')
@@ -45,11 +52,9 @@ class Config:
     SYSTEM_VOICE = os.getenv('SYSTEM_VOICE', 'en-US-Neural2-J')
     """ The voice to use when speaking to the user. Default is en-US-Neural2-J. See https://cloud.google.com/text-to-speech/docs/voices for all available voices """
 
-    GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-    """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """
-
     @property
     def GOOGLE_APPLICATION_CREDENTIALS(self):
+        """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """
         # Set environment variable GOOGLE_APPLICATION_CREDENTIALS
         # This is needed for the google cloud speech api
         # I don't get why they make this so complicated by needing to set an environment variable

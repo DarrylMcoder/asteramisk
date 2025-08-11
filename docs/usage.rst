@@ -33,7 +33,7 @@ Each call to a handler will be handled by a separate coroutine.
             await ui.hangup()
 
         async def main():
-            server = Server(host='127.0.0.1', port=4753)
+            server = await Server.create(host='127.0.0.1', port=4753)
             await server.register_extension('1234567890', call_handler=my_call_handler, text_handler=my_text_handler)
             await server.serve_forever()
 

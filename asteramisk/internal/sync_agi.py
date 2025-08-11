@@ -9,9 +9,9 @@ class SyncAsteriskGatewayInterface(AsteriskGatewayInterface):
     Synchronous AGI interface
     Fully compatible and interchangeable with the asynchronous AGI interface
     """
-    def __init__(self, request: Request):
+    async def __create__(self, request: Request):
         self._request = request
-        super().__init__()
+        super().__create__()
 
     @property
     def channel(self):

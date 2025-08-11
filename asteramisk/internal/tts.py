@@ -6,13 +6,17 @@ from pydub import AudioSegment
 from google.cloud import texttospeech_v1 as texttospeech
 
 from asteramisk.config import config
+from asteramisk.internal.async_class import AsyncClass
 
-class TTSEngine:
+import logging
+logger = logging.getLogger(__name__)
+
+class TTSEngine(AsyncClass):
 
     cache = {}
     _sounds_subdir = config.ASTERISK_TTS_SOUNDS_SUBDIR
 
-    def __init__(self):
+    async def __create__(self):
         # Create the directory if it doesn't exist
         if not os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}"):
             os.makedirs(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}")
@@ -65,9 +69,9 @@ class TTSEngine:
 
         text_and_voice = f"{clean_text}-{voice}"
         
-        if os.path.exists(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{text_and_voice}.gsm"):
+        if os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{text_and_voice}.gsm"):
             return f"{self._sounds_subdir}/{text_and_voice}"
-        elif text_and_voice in self.cache and os.path.exists(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{self.cache[text_and_voice]}.gsm"):
+        elif text_and_voice in self.cache and os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{self.cache[text_and_voice]}.gsm"):
             return f"{self._sounds_subdir}/{self.cache[text_and_voice]}"
         else:
             # Create the file
@@ -88,7 +92,7 @@ class TTSEngine:
                 input=synthesis_input, voice=voice, audio_config=audio_config
             )
             # Save the audio content to a file
-            with open(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{filename}.mp3", "wb") as out:
+            with open(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{filename}.mp3", "wb") as out:
                 out.write(response.audio_content)
 
             # convert mp3 to gsm
@@ -109,9 +113,9 @@ class TTSEngine:
 
         text_and_voice = f"{clean_text}-google-tts"
 
-        if os.path.exists(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{text_and_voice}.gsm"):
+        if os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{text_and_voice}.gsm"):
             return f"{self._sounds_subdir}/{text_and_voice}"
-        elif text_and_voice in self.cache and os.path.exists(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{self.cache[text_and_voice]}.gsm"):
+        elif text_and_voice in self.cache and os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{self.cache[text_and_voice]}.gsm"):
             return f"{self._sounds_subdir}/{self.cache[text_and_voice]}"
         else:
             # Create the file
@@ -123,14 +127,14 @@ class TTSEngine:
                 tld='ca',
                 text=text,
                 lang='en'
-            ).save(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{filename}.mp3")
+            ).save(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{filename}.mp3")
 
             # convert mp3 to gsm
-            sound = AudioSegment.from_mp3(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{filename}.mp3")
+            sound = AudioSegment.from_mp3(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{filename}.mp3")
             sound = sound.set_frame_rate(8000)
-            sound.export(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{filename}.gsm", format="gsm")
+            sound.export(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{filename}.gsm", format="gsm")
 
             # remove mp3
-            os.remove(f"/usr/share/asterisk/sounds/{self._sounds_subdir}/{filename}.mp3")
+            os.remove(f"{config.ASTERISK_SOUNDS_DIR}/{self._sounds_subdir}/{filename}.mp3")
 
         return f"{self._sounds_subdir}/{self.cache[text_and_voice]}"

@@ -5,11 +5,10 @@ from panoramisk import Manager
 from panoramisk.actions import Action
 
 from asteramisk.config import config
+from asteramisk.internal.async_singleton import AsyncSingleton
 
-class MessageBroker:
-    _instance = None
-
-    def __init__(self, our_number):
+class MessageBroker(AsyncSingleton):
+    async def __create__(self, our_number):
         self._our_number = our_number
         self._message_lock = asyncio.Lock()
         self._incoming_messages = {}
@@ -21,16 +20,7 @@ class MessageBroker:
                 secret=config.ASTERISK_AMI_PASS,
                 ssl=False
             )
-
-    @classmethod
-    async def create(cls, our_number):
-        """ Creates a new instance of the class and connects it to asterisk. """
-        # Singleton
-        if not cls._instance:
-            cls._instance = cls(our_number)
-            # Connect to asterisk AMI when the instance is created
-            await cls._instance.connect()
-        return cls._instance
+        await self._manager.connect()
 
     async def connect(self):
         await self._manager.connect()

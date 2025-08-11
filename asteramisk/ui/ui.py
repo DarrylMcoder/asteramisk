@@ -1,9 +1,11 @@
 from typing import Any
 
+from asteramisk.internal.async_class import AsyncClass
+
 import logging
 logger = logging.getLogger(__name__)
 
-class UI:
+class UI(AsyncClass):
     """
     Base class for all user interfaces
     All user interfaces have these basic methods
@@ -12,9 +14,6 @@ class UI:
     class UIType:
         VOICE = "voice"
         TEXT = "text"
-
-    def __init__(self):
-        pass
 
     @property
     def ui_type(self):

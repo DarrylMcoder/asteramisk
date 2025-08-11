@@ -3,12 +3,13 @@ from panoramisk.manager import Manager
 
 from asteramisk.config import config
 from asteramisk.exceptions import AGIException
+from asteramisk.internal.async_class import AsyncClass
 
 import logging
 logger = logging.getLogger(__name__)
 
-class AsteriskGatewayInterface:
-    def __init__(self):
+class AsteriskGatewayInterface(AsyncClass):
+    async def __create__(self):
         self._manager = Manager(
             host=config.ASTERISK_HOST,
             port=config.ASTERISK_AMI_PORT,
@@ -16,6 +17,7 @@ class AsteriskGatewayInterface:
             secret=config.ASTERISK_AMI_PASS,
             ssl=False
         )
+        await self._manager.connect()
 
     def __del__(self):
         self._manager.close()
@@ -23,13 +25,6 @@ class AsteriskGatewayInterface:
     @property
     def channel(self):
         raise NotImplementedError
-
-    @classmethod
-    async def create(cls, *args, **kwargs):
-        """ Creates a new instance of the class and connects it to asterisk. """
-        instance = cls(*args, **kwargs)
-        await instance.connect()
-        return instance
 
     async def connect(self):
         await self._manager.connect()

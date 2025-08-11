@@ -5,11 +5,12 @@ from panoramisk.actions import Action
 import asteramisk.ui
 import asteramisk.exceptions
 from asteramisk.config import config
+from asteramisk.internal.async_class import AsyncClass
 
 import logging
 logger = logging.getLogger(__name__)
 
-class Communicator:
+class Communicator(AsyncClass):
     """
     A class for making calls and text message conversations.
     
@@ -17,7 +18,7 @@ class Communicator:
 
     .. code-block:: python
 
-        communicator = await Communicator.create()
+        communicator = await Communicator.create(callerid_number="1234567890", callerid_name="John Doe")
         try:
             await communicator.make_call(recipient_number="1234567890")
             await communicator.send_message(recipient_number="1234567890", message="Hello world!")
@@ -29,11 +30,11 @@ class Communicator:
 
     .. code-block:: python
 
-        async with Communicator.create() as communicator:
+        async with await Communicator.create() as communicator:
             await communicator.make_call(recipient_number="1234567890")
             await communicator.send_message(recipient_number="1234567890", message="Hello world!")
     """
-    def __init__(self, callerid_number=config.SYSTEM_PHONE_NUMBER, callerid_name=config.SYSTEM_NAME):
+    async def __create__(self, callerid_number=config.SYSTEM_PHONE_NUMBER, callerid_name=config.SYSTEM_NAME):
         """
         Initializes the Communicator.
         :param callerid_number: The number to use for the caller ID.
@@ -52,12 +53,7 @@ class Communicator:
             secret=config.ASTERISK_AMI_PASS,
             ssl=False
         )
-
-    @classmethod
-    async def create(cls, *args, **kwargs):
-        instance = cls(*args, **kwargs)
-        await instance.connect()
-        return instance
+        await self._manager.connect()
 
     async def connect(self):
         await self._manager.connect()

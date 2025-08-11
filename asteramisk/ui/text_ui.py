@@ -3,12 +3,12 @@ from asteramisk.internal.message_broker import MessageBroker
 from .ui import UI
 
 class TextUI(UI):
-    def __init__(self, recipient_number, our_callerid_number=config.SYSTEM_PHONE_NUMBER, our_callerid_name=config.SYSTEM_NAME):
-        self._broker = MessageBroker(our_callerid_number)
+    async def __create__(self, recipient_number, our_callerid_number=config.SYSTEM_PHONE_NUMBER, our_callerid_name=config.SYSTEM_NAME):
+        self._broker = await MessageBroker.create(our_callerid_number)
         self._recipient_number = recipient_number
         self._our_callerid_number = our_callerid_number
         self._our_callerid_name = our_callerid_name
-        super().__init__()
+        super().__create__()
 
     @property
     def ui_type(self):

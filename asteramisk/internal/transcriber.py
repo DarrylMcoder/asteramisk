@@ -2,13 +2,11 @@ import os
 import asyncio
 from pydub import AudioSegment
 
-class TranscribeEngine:
-    _instance = None
+from asteramisk.internal.async_singleton import AsyncSingleton
 
-    def __init__(self):
-        self.thread = None
-        self.transcript = None
-        self.exception = None
+class TranscribeEngine(AsyncSingleton):
+
+    async def __create__(self):
         # Import locally because it complains about missing GOOGLE_APPLICATION_CREDENTIALS environment variable even when generating documentation
         from google.cloud import speech_v1 as speech
         self.client = speech.SpeechClient()
