@@ -1,4 +1,5 @@
 import os
+import uuid
 import asyncio
 import panoramisk.fast_agi
 import panoramisk.actions
@@ -7,12 +8,13 @@ import panoramisk.manager
 import asteramisk.ui
 from asteramisk.config import config
 from asteramisk.internal.message_broker import MessageBroker
+from asteramisk.internal.async_class import AsyncClass
 
 import logging
 logger = logging.getLogger(__name__)
 
-class Server:
-    def __init__(self, host=config.AGI_SERVER_HOST, bindaddr=config.AGI_SERVER_BINDADDR, port=config.AGI_SERVER_PORT):
+class Server(AsyncClass):
+    async def __create__(self, host=config.AGI_SERVER_HOST, bindaddr=config.AGI_SERVER_BINDADDR, port=config.AGI_SERVER_PORT):
         self.host = host
         self.bindaddr = bindaddr
         self.port = port
@@ -101,10 +103,10 @@ class Server:
         channel = request.headers['agi_channel']
         extension = request.headers['agi_extension']
 
-        # Put the channel into Async AGI mode
-        await request.send_command("EXEC AGI agi:async")
+        # Start Audio Socket
+        await request.send_command("EXEC AudioSocket 127.0.0.1,51001,{str(uuid.uuid4())}")
 
-        ui = asteramisk.ui.VoiceUI(channel)
+        ui = await asteramisk.ui.VoiceUI.create(channel)
         logger.info("Created VoiceUI")
         call_handler, _ = self.handlers[extension]
 
@@ -122,7 +124,7 @@ class Server:
         message = request.headers['agi_arg_2']
         extension = request.headers['agi_extension']
 
-        broker = MessageBroker()
+        broker = await MessageBroker.create(config.SYSTEM_PHONE_NUMBER)
         if broker.has_conversation(phone_number):
             # Existing conversation, use the existing UI and simply pass the message to it via the broker
             await broker.message_received(phone_number, message)

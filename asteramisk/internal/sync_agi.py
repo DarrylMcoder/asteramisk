@@ -11,7 +11,7 @@ class SyncAsteriskGatewayInterface(AsteriskGatewayInterface):
     """
     async def __create__(self, request: Request):
         self._request = request
-        super().__create__()
+        await super().__create__()
 
     @property
     def channel(self):

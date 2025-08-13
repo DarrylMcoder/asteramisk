@@ -16,12 +16,12 @@ class VoiceUI(UI):
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    def __init__(self, channel, voice=config.SYSTEM_VOICE):
-        self.agi = AsyncAsteriskGatewayInterface(channel)
-        self.transcriber = TranscribeEngine()
-        self.tts = TTSEngine()
+    async def __create__(self, channel, voice=config.SYSTEM_VOICE):
+        self.agi = await AsyncAsteriskGatewayInterface.create(channel)
+        self.transcriber = await TranscribeEngine.create()
+        self.tts = await TTSEngine.create()
         self.voice = voice
-        super().__init__()
+        await super().__create__()
 
     @property
     def ui_type(self):
