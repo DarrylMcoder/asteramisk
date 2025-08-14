@@ -7,8 +7,9 @@ import panoramisk.manager
 
 import asteramisk.ui
 from asteramisk.config import config
-from asteramisk.internal.message_broker import MessageBroker
 from asteramisk.internal.async_class import AsyncClass
+from asteramisk.internal.message_broker import MessageBroker
+from asteramisk.internal.audiosocket import AsyncAudiosocket
 
 import logging
 logger = logging.getLogger(__name__)
@@ -103,8 +104,11 @@ class Server(AsyncClass):
         channel = request.headers['agi_channel']
         extension = request.headers['agi_extension']
 
+        # Answer the call
+        await request.send_command("EXEC Answer")
         # Start Audio Socket
-        await request.send_command("EXEC AudioSocket 127.0.0.1,51001,{str(uuid.uuid4())}")
+        audio_socket_id = str(uuid.uuid4())
+        await request.send_command(f"EXEC AudioSocket {audio_socket_id},127.0.0.1:51001")
 
         ui = await asteramisk.ui.VoiceUI.create(channel)
         logger.info("Created VoiceUI")
