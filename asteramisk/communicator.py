@@ -59,10 +59,9 @@ class Communicator(AsyncClass):
         await self._manager.connect()
 
     async def close(self):
-        await self._manager.close()
+        self._manager.close()
 
     async def __aenter__(self):
-        await self.connect()
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
@@ -108,7 +107,7 @@ class Communicator(AsyncClass):
         if recipient_number:
             channel = f"PJSIP/{recipient_number}@{config.ASTERISK_PSTN_ENDPOINT}"
 
-        if len(callerid_number) != 10:
+        if callerid_number and len(callerid_number) != 10:
             logger.warning(f"Caller ID number {callerid_number} is not 10 digits. It will not work. Will be replaced with default number.")
             callerid_number = config.SYSTEM_PHONE_NUMBER
 
@@ -136,7 +135,7 @@ class Communicator(AsyncClass):
             raise asteramisk.exceptions.CallFailedException(f"Failed to get channel for call to {recipient_number}")
         channel = response[1].channel
 
-        ui = asteramisk.ui.VoiceUI(channel)
+        ui = await asteramisk.ui.VoiceUI.create(channel)
         return ui
 
     async def make_text(self,

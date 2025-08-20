@@ -21,6 +21,7 @@ class AsyncAudiosocket(AsyncClass):
         # or re-mixng input/output) are disabled
         self.user_resample = None
         self.asterisk_resample = None
+        self.connections = {}
 
         if not isinstance(bind_info, tuple):
             raise TypeError("Expected tuple (addr, port), received", type(bind_info))
@@ -33,6 +34,8 @@ class AsyncAudiosocket(AsyncClass):
         self.initial_sock.listen(100)
         # If the user doesn't specify a port, we use the one we got
         self.port = self.initial_sock.getsockname()[1]
+        # Start the listening loop
+        asyncio.create_task(self._listen_loop())
 
     async def prepare_input(self, inrate=44000, channels=2, ulaw2lin=False):
         self.user_resample = audioop_struct(
@@ -49,6 +52,25 @@ class AsyncAudiosocket(AsyncClass):
             ulaw2lin=ulaw2lin,
             ratecv_state=None,
         )
+
+    async def _listen_loop(self):
+        try:
+            logger.debug("AsyncAudiosocket._listen_loop")
+            while True:
+                audconn = await self.listen()
+                logger.debug("AsyncAudiosocket._listen_loop: audconn created")
+                stream_id = await audconn.get_uuid()
+                self.connections[stream_id] = audconn
+                logger.debug(f"AsyncAudiosocket._listen_loop: added connection {stream_id}")
+        except Exception as e:
+            logger.error(f"AsyncAudiosocket._listen_loop error: {e}")
+
+    async def accept(self, stream_id):
+        logger.debug(f"AsyncAudiosocket.accept: waiting for connection {stream_id}")
+        while stream_id not in self.connections:
+            logger.debug(f"AsyncAudiosocket.accept: waiting for connection {stream_id}")
+            await asyncio.sleep(0.1)
+        return self.connections[stream_id]
 
     async def listen(self):
         logger.debug("AsyncAudiosocket.listen")

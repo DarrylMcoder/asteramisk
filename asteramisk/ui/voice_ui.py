@@ -1,96 +1,147 @@
 import uuid
+import base64
+import asyncio
+import google.protobuf.duration_pb2
+import google.cloud.speech_v1 as speech
+import google.cloud.texttospeech_v1 as texttospeech
+from contextlib import asynccontextmanager
 
 from .ui import UI
 from asteramisk.internal.async_agi import AsyncAsteriskGatewayInterface
+from asteramisk.internal.audiosocket_connection import AsyncConnection
 from asteramisk.exceptions import GoBackException, GoToMainException, AGIException
 from asteramisk.config import config
-from asteramisk.internal.tts import TTSEngine
-from asteramisk.internal.transcriber import TranscribeEngine
 
 import logging
 logger = logging.getLogger(__name__)
 
 class VoiceUI(UI):
+    tts_client = None
+    transcribe_client = None
     """
     A voice user interface for Asterisk
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    async def __create__(self, channel, voice=config.SYSTEM_VOICE):
-        self.agi = await AsyncAsteriskGatewayInterface.create(channel)
-        self.transcriber = await TranscribeEngine.create()
-        self.tts = await TTSEngine.create()
+    async def __create__(self, audconn: AsyncConnection, voice=config.SYSTEM_VOICE):
+        logger.debug("VoiceUI.__create__")
         self.voice = voice
+        self.audconn = audconn
+        self.audconn.on('error', self._on_audconn_error)
+        self.is_transcribing = asyncio.Event()
+        self.text_in_queue = asyncio.Queue(1)
+        self.text_out_queue = asyncio.Queue(1)
+        self.text_out_say_done = asyncio.Event()
+        self.out_media_task = asyncio.create_task(self._out_media_exchanger())
+        self.in_media_task = asyncio.create_task(self._in_media_exchanger())
+        if not config.GOOGLE_APPLICATION_CREDENTIALS:
+            raise Exception("VoiceUI.__create__: GOOGLE_APPLICATION_CREDENTIALS is not set")
+        if not self.tts_client:
+            self.tts_client = texttospeech.TextToSpeechAsyncClient()
+        if not self.transcribe_client:
+            self.transcribe_client = speech.SpeechAsyncClient()
         await super().__create__()
+
+    @asynccontextmanager
+    async def event_set(self, event: asyncio.Event):
+        event.set()
+        try:
+            yield
+        finally:
+            event.clear()
 
     @property
     def ui_type(self):
         return self.UIType.VOICE
 
-    async def send_command(self, command):
-        """
-        Sends an AGI command to Asterisk
-        :param: command: Command to send
-        :return: dict: Result of the AGI command
-        """
-        return await self.agi.send_command(command)
-
-    async def answer(self):
-        """ Answers the call """
-        await self.agi.connect()
-        await self.send_command('ANSWER')
-
     async def hangup(self):
-        """ Hangs up the call """
-        await self.send_command('HANGUP')
-        await self.agi.close()
+        logger.debug("VoiceUI.hangup")
+        await self.audconn.close()
+        self.out_media_task.cancel()
+        self.in_media_task.cancel()
 
-    async def _get_data(self, filename, num_digits=None) -> str:
-        """
-        Get data from Asterisk. Sends GET DATA AGI command
-        :param filename: Name of the file to play
-        :param num_digits: Number of digits to wait for
-        :return: DTMF digits
-        """
-        # So we don't have to wait long if we're just waiting in case of goback
-        # Because i use this function for situations like play where we don't want any return data
-        if num_digits is None:
-            timeout = 10
-            num_digits = 1
-        else:
-            timeout = 2000
-        response = await self.send_command(f"GET DATA {filename} {timeout} {num_digits}")
-        if 'error' in response and 'msg' in response:
-            raise AGIException(response['msg'])
-        digits = response['result'][0]
-        if digits == '*':
-            raise GoBackException
-        if digits == '#':
-            raise GoToMainException
-        return digits
+    async def _on_audconn_error(self, error):
+        logger.error(f"VoiceUI._on_audconn_error: {error}")
+        await self.hangup()
 
-    async def play(self, filename) -> None:
-        """
-        Play file
-        :param filename: Name of the file to play, without the extension
-        File must be in asterisk sounds directory
-        e.g. "recordings/recording".
-        :raise GoBackException: If the user presses *
-        :raise GoToMainException: If the user presses #
-        """
-        await self._get_data(filename)
-        return
+    async def _out_media_exchanger(self):
+        logger.debug("VoiceUI._out_media_exchanger")
+        try:
+            while True:
+                ### Get the text in the output queue, convert it to speech, and send it out over the AudioSocket
+                text = await self.text_out_queue.get()
+                # Convert text to speech using google tts api
+                input = texttospeech.SynthesisInput(text=text)
+                voice = texttospeech.VoiceSelectionParams(language_code="en-US", name=self.voice)
+                audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16, sample_rate_hertz=8000)
+                response = await self.tts_client.synthesize_speech(input=input, voice=voice, audio_config=audio_config)
+                # Send the audio over the AudioSocket
+                await self.audconn.write(response.audio_content)
+                await self.audconn.drain()
+                self.text_out_say_done.set()
+        except Exception as e:
+            logger.error(f"VoiceUI._out_media_exchanger: {e}")
 
-    async def say(self, text) -> None:
+    async def transcribe_request_generator(self):
+        yield speech.StreamingRecognizeRequest(
+            streaming_config=speech.StreamingRecognitionConfig(
+                config=speech.RecognitionConfig(
+                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=8000,
+                    language_code="en-US",
+                ),
+                enable_voice_activity_events=True
+            )
+        )
+        while True:
+            if self.is_transcribing.is_set():
+                audio = await self.audconn.read()
+                yield speech.StreamingRecognizeRequest(audio_content=audio)
+            else:
+                break
+
+    async def _in_media_exchanger(self):
+        logger.debug("VoiceUI._in_media_exchanger")
+        try:
+            while True:
+                ### Get the audio in the input queue, convert it to text, and put it in the input queue
+                # Wait till we should be transcribing
+                await self.is_transcribing.wait()
+                responses = await self.transcribe_client.streaming_recognize(requests=self.transcribe_request_generator())
+                async for response in responses:
+                    print("Got response")
+                    if response.speech_event_type == speech.StreamingRecognizeResponse.SpeechEventType.SPEECH_ACTIVITY_BEGIN:
+                        logger.info("Speech activity begin, clearing send queue")
+                        await self.audconn.clear_send_queue()
+                    if response.results and response.results[0].alternatives and response.results[0].alternatives[0].transcript:
+                        logger.info(f"Got transcript: {response.results[0].alternatives[0].transcript}")
+                        await self.text_in_queue.put(response.results[0].alternatives[0].transcript)
+
+        except Exception as e:
+            logger.error(f"VoiceUI._in_media_exchanger: {e}")
+
+    async def say_no_wait(self, text) -> None:
         """
-        Speak text to the user
+        Speak text to the user, but don't wait for it to finish before returning
         :param text: Text to speak
         :raise: GoBackException: if the user presses *
         :raise: GotoMainException: if the user presses #
         """
-        filename = await self.tts.convert_async(text, self.voice)
-        await self.play(filename)
-        return
+        logger.info(f"{self._unique_id}: speaking: {text}")
+        self.text_out_say_done.clear()
+        await self.text_out_queue.put(text)
+
+    async def say(self, text) -> None:
+        """
+        Speak text to the user, waiting for speech to finish before returning
+        :param text: Text to speak
+        :raise: GoBackException: if the user presses *
+        :raise: GotoMainException: if the user presses #
+        """
+        await self.say_no_wait(text)
+        logger.info("Waiting for speech to finish")
+        await self.text_out_say_done.wait()
+        logger.info("Speech finished")
 
     async def record(self, prompt=None, filename=None, timeout=10000, playbeep=True, silence=2500):
         """
@@ -103,14 +154,7 @@ class VoiceUI(UI):
         :return: Full path to the saved file
         """
         logger.info(f"{self._unique_id}: recording: {prompt}")
-        if prompt:
-            await self.say(prompt)
-        if not filename:
-            filename = str(uuid.uuid4())
-        await self.send_command(f"RECORD FILE recordings/{filename} gsm # {timeout} 0 {'beep' if playbeep else ''} s={silence}")
-        #filename = f"/usr/share/asterisk/sounds/recordings/{filename}.gsm"
-        filename = f"/var/lib/asterisk/sounds/custom/{filename}.gsm"
-        return filename
+        raise NotImplementedError
 
     async def prompt(self, text) -> str:
         """
@@ -118,8 +162,11 @@ class VoiceUI(UI):
         :param text: Text to prompt the user
         :return: The user's input
         """
-        recording_filename = await self.record(prompt=text)
-        return await self.transcriber.transcribe(recording_filename)
+        await self.say_no_wait(text)
+        logger.info("Said prompt")
+        async with self.event_set(self.is_transcribing):
+            logger.info("Waiting for user input")
+            return await self.text_in_queue.get()
 
     async def gather(self, text, num_digits) -> str:
         """
@@ -127,8 +174,7 @@ class VoiceUI(UI):
         :param text: Text to prompt the user
         :return: The user's input
         """
-        filename = await self.tts.convert_async(text, self.voice_name)
-        return await self._get_data(filename, num_digits)
+        raise NotImplementedError
 
     async def ask_yes_no(self, text) -> bool:
         """

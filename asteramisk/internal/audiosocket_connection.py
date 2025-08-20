@@ -2,7 +2,6 @@ import uuid
 import audioop
 import asyncio
 from contextlib import suppress
-from asyncio import Queue, Lock
 from dataclasses import dataclass
 from asteramisk.internal.async_class import AsyncClass
 
@@ -17,6 +16,7 @@ class types_struct:
   uuid:    bytes = b'\x01'   # Message payload contains UUID set in Asterisk Dialplan
   audio:   bytes = b'\x10'   # * Message payload contains 8Khz 16-bit mono LE PCM audio (* See Github readme)
   silence: bytes = b'\x02'   # Message payload contains silence (I've never seen this occur personally)
+  dtmf:    bytes = b'\x03'   # Message payload is 1 byte (ascii) DTMF digit
   hangup:  bytes = b'\x00'   # Tell Asterisk to hangup the call (This doesn't appear to ever be sent from Asterisk to us)
   error:   bytes = b'\xff'   # Message payload contains an error from Asterisk
 
@@ -45,8 +45,6 @@ class errors_struct:
 
 errors = errors_struct()
 
-
-
 class AsyncConnection(AsyncClass):
     async def __create__(self, conn, peer_addr, user_resample, asterisk_resample):
         logger.debug("AsyncConnection.__create__")
@@ -56,20 +54,44 @@ class AsyncConnection(AsyncClass):
         self.connected = True
         self._user_resample = user_resample
         self._asterisk_resample = asterisk_resample
-        self._rx_q = Queue(500)
-        self._tx_q = Queue(500)
-        self._lock = Lock()
+        self._rx_q = asyncio.Queue(500)
+        self._tx_q = asyncio.Queue(500)
+        self._tx_done = asyncio.Event()
+        self._lock = asyncio.Lock()
+        self._event_callbacks = {}
         self._loop = asyncio.get_running_loop()
-        logger.debug("AsyncConnection.__create__ creating task")
-        logger.debug("AsyncConnection.__create__ task created")
         self._task = asyncio.create_task(self._process())
-        logger.debug("AsyncConnection.__create__ done")
+
+    def on(self, event, callback):
+        # Ensure that the event exists in types_struct
+        if event not in ['uuid', 'dtmf', 'error']:
+            raise ValueError(f"Trying to register an invalid event: {event}")
+
+        self._event_callbacks[event] = callback
 
     async def get_uuid(self):
         while self._uuid is None:
             logger.debug("AsyncConnection.get_uuid: waiting for uuid")
             await asyncio.sleep(0.1)
         return self._uuid
+
+    async def clear_send_queue(self):
+        """Clear the send queue. Cancels any audio that is currently being sent"""
+        logger.debug("AsyncConnection.clear_send_queue")
+        while True:
+            try:
+                self._tx_q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    async def clear_receive_queue(self):
+        """Clear the receive queue. Discards any audio that has been received but not yet read"""
+        logger.debug("AsyncConnection.clear_receive_queue")
+        while True:
+            try:
+                self._rx_q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     def _split_data(self, data):
         if len(data) < 3:
@@ -130,7 +152,12 @@ class AsyncConnection(AsyncClass):
                 )
             if self._user_resample.channels == 2:
                 audio = audioop.tomono(audio, 2, 1, 1)
-        await self._tx_q.put(audio)
+        # If the audio data is greater than 320 bytes, write it in 320 byte chunks
+        if len(audio) > 320:
+            for i in range(0, len(audio), 320):
+                await self._tx_q.put(audio[i : i + 320])
+        else:
+            await self._tx_q.put(audio)
 
     async def hangup(self):
         logger.debug("AsyncConnection.hangup")
@@ -143,7 +170,6 @@ class AsyncConnection(AsyncClass):
         logger.debug("AsyncConnection._process")
         try:
             while self.connected:
-                logger.debug("AsyncConnection._process loop")
                 data = None
                 try:
                     data = await self._loop.sock_recv(self.conn, 323)
@@ -157,23 +183,33 @@ class AsyncConnection(AsyncClass):
                 if type_byte == types.audio:
                     if self._rx_q.full():
                         print('[AUDIOSOCKET WARNING] The inbound audio queue is full! This most ' +
-                              'likely occurred because the read() method is not being called, skipping frame')
-                    else:
-                        logger.debug(f"Audio packet of length {length} added to inbound queue")
-                        await self._rx_q.put(payload)
+                              'likely occurred because the read() method is not being called, dropping oldest frame')
+                        self._rx_q.get_nowait()
+                    await self._rx_q.put(payload)
                     if self._tx_q.empty():
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
                     else:
-                        logger.debug(f"Audio packet of length {length} sent from outbound queue")
                         audio_data = await self._tx_q.get()
                         audio_data = audio_data[:320]
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + len(audio_data).to_bytes(2, 'big') + audio_data)
+                elif type_byte == types.dtmf:
+                    logger.debug(f"AsyncConnection._process DTMF: {payload}")
+                    if 'dtmf' in self._event_callbacks:
+                        asyncio.create_task(self._event_callbacks['dtmf'](payload))
                 elif type_byte == types.error:
+                    logger.debug(f"AsyncConnection._process ERROR: {payload}")
+                    if 'error' in self._event_callbacks:
+                        asyncio.create_task(self._event_callbacks['error'](payload))
                     self._decode_error(payload)
                 elif type_byte == types.uuid:
-                    self._uuid = uuid.UUID(bytes=payload)
+                    logger.debug(f"AsyncConnection._process UUID: {payload}")
+                    if 'uuid' in self._event_callbacks:
+                        asyncio.create_task(self._event_callbacks['uuid'](payload))
+                    self._uuid = str(uuid.UUID(bytes=payload))
+        except Exception as e:
+            logger.error(f"AsyncConnection._process error: {e}")
         finally:
             await self.close()
 
