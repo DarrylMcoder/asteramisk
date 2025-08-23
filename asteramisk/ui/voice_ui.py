@@ -1,9 +1,13 @@
+import uuid
 import asyncio
 from contextlib import asynccontextmanager
+from panoramisk.actions import Action
+from panoramisk.manager import Manager
 
 from .ui import UI
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
+from asteramisk.internal.audiosocket import AudiosocketAsync
 from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.config import config
 
@@ -16,10 +20,13 @@ class VoiceUI(UI):
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    async def __create__(self, audconn: AudioSocketConnectionAsync, voice=config.SYSTEM_VOICE):
+    async def __create__(self, channel: str, voice=config.SYSTEM_VOICE):
         logger.debug("VoiceUI.__create__")
         self.voice = voice
-        self.audconn = audconn
+        audsockid = str(uuid.uuid4())
+        audiosocket = await AudiosocketAsync.create()
+        asyncio.create_task(self._connect_channel_to_audiosocket_stream(channel=channel, audsockid=audsockid))
+        self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(audsockid)
         self.audconn.on('error', self._on_audconn_error)
         self.tts_engine = await TTSEngine.create()
         self.transcribe_engine = await TranscribeEngine.create()
@@ -27,6 +34,24 @@ class VoiceUI(UI):
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
         await super().__create__()
+
+    async def _connect_channel_to_audiosocket_stream(self, channel: str, audsockid: str):
+        # Connect asterisk channel to the audiosocket
+        manager = Manager(
+            host=config.ASTERISK_HOST,
+            port=config.ASTERISK_AMI_PORT,
+            username=config.ASTERISK_AMI_USER,
+            secret=config.ASTERISK_AMI_PASS
+        )
+        await manager.connect()
+        originate_action = Action({
+            "Action": "Originate",
+            "Channel": f"Audiosocket/{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}/{audsockid}/c(slin)",
+            "Application": "ChanSpy",
+            "Data": f"{channel},qB",
+            "Async": True  # This seems to be required.
+        })
+        await manager.send_action(originate_action)
 
     @asynccontextmanager
     async def event_set(self, event: asyncio.Event):

@@ -8,9 +8,10 @@ import panoramisk.manager
 
 import asteramisk.ui
 from asteramisk.config import config
+from asteramisk.communicator import Communicator
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.internal.message_broker import MessageBroker
-from asteramisk.internal.audiosocket import AsyncAudiosocket
+from asteramisk.internal.audiosocket import AudiosocketAsync
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class Server(AsyncClass):
             raise ValueError("Must provide a port. Either set the AGI_SERVER_PORT environment variable, set config.AGI_SERVER_PORT or pass it to the constructor")
 
         self.handlers = {}
-        self.audiosocket_server = await AsyncAudiosocket.create((config.AUDIOSOCKET_BINDADDR, int(config.AUDIOSOCKET_PORT)))
+        self.audiosocket_server = await AudiosocketAsync.create()
 
     async def register_extension(self, extension, call_handler=None, message_handler=None):
         """
@@ -110,17 +111,13 @@ class Server(AsyncClass):
         await request.send_command('ANSWER')
         logger.info("Answered call")
 
-        audio_socket_id = str(uuid.uuid4())
-        # Very hackish way to swallow the ValueError that panoramisk throws
-        # It still works though
         async def start_audio_socket():
             with contextlib.suppress(ValueError):
                 await request.send_command(f"EXEC AudioSocket {audio_socket_id},{config.ASTERAMISK_HOST}:{config.AUDIOSOCKET_PORT}")
         # Put this in a task because it won't return until the connection is closed
-        asyncio.create_task(start_audio_socket())
-        audsock_conn = await self.audiosocket_server.accept(audio_socket_id)
+        #asyncio.create_task(start_audio_socket())
 
-        ui = await asteramisk.ui.VoiceUI.create(audsock_conn)
+        ui = await asteramisk.ui.VoiceUI.create(channel)
 
         call_handler, _ = self.handlers[extension]
 

@@ -2,7 +2,8 @@ import socket
 import asyncio
 from dataclasses import dataclass
 from .audiosocket_connection import AudioSocketConnectionAsync
-from asteramisk.internal.async_class import AsyncClass
+from asteramisk.internal.async_singleton import AsyncSingleton
+from asteramisk.config import config
 
 import logging
 logger = logging.getLogger(__name__)
@@ -14,8 +15,8 @@ class audioop_struct:
     channels: int
     ulaw2lin: bool
 
-class AudiosocketAsync(AsyncClass):
-    async def __create__(self, bind_info, timeout=None):
+class AudiosocketAsync(AsyncSingleton):
+    async def __create__(self, bind_addr=config.AUDIOSOCKET_BINDADDR, bind_port=config.AUDIOSOCKET_PORT, timeout=None):
         logger.debug("AsyncAudiosocket.__create__")
         # By default, features of audioop (for example: resampling
         # or re-mixng input/output) are disabled
@@ -23,9 +24,15 @@ class AudiosocketAsync(AsyncClass):
         self.asterisk_resample = None
         self.connections = {}
 
-        if not isinstance(bind_info, tuple):
-            raise TypeError("Expected tuple (addr, port), received", type(bind_info))
-        self.addr, self.port = bind_info
+        if not bind_addr:
+            raise ValueError("No bind address specified for audiosocket. You must specify a bind address, either by setting the AUDIOSOCKET_BINDADDR environment variable, setting config.AUDIOSOCKET_BINDADDR, or by passing it as a parameter to the constructor.")
+
+        if not bind_port:
+            raise ValueError("No bind port specified for audiosocket. You must specify a bind port, either by setting the AUDIOSOCKET_PORT environment variable, setting config.AUDIOSOCKET_PORT, or by passing it as a parameter to the constructor.")
+
+        self.addr = bind_addr
+        self.port = int(bind_port)
+
         self.initial_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.initial_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.initial_sock.bind((self.addr, self.port))
