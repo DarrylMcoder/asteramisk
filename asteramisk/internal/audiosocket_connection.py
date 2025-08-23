@@ -45,7 +45,7 @@ class errors_struct:
 
 errors = errors_struct()
 
-class AsyncConnection(AsyncClass):
+class AudioSocketConnectionAsync(AsyncClass):
     async def __create__(self, conn, peer_addr, user_resample, asterisk_resample):
         logger.debug("AsyncConnection.__create__")
         self.conn = conn
@@ -56,7 +56,6 @@ class AsyncConnection(AsyncClass):
         self._asterisk_resample = asterisk_resample
         self._rx_q = asyncio.Queue(500)
         self._tx_q = asyncio.Queue(500)
-        self._tx_done = asyncio.Event()
         self._lock = asyncio.Lock()
         self._event_callbacks = {}
         self._loop = asyncio.get_running_loop()
@@ -78,20 +77,28 @@ class AsyncConnection(AsyncClass):
     async def clear_send_queue(self):
         """Clear the send queue. Cancels any audio that is currently being sent"""
         logger.debug("AsyncConnection.clear_send_queue")
-        while True:
-            try:
-                self._tx_q.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        async def clear():
+            while True:
+                try:
+                    await asyncio.wait_for(self._tx_q.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    break
+        asyncio.create_task(clear())
 
     async def clear_receive_queue(self):
         """Clear the receive queue. Discards any audio that has been received but not yet read"""
         logger.debug("AsyncConnection.clear_receive_queue")
-        while True:
-            try:
-                self._rx_q.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        async def clear():
+            while True:
+                try:
+                    await asyncio.wait_for(self._rx_q.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    break
+        asyncio.create_task(clear())
+
+    async def drain_send_queue(self):
+        logger.debug("AsyncConnection.drain_send_queue")
+        await self._tx_q.join()
 
     def _split_data(self, data):
         if len(data) < 3:
@@ -113,7 +120,6 @@ class AsyncConnection(AsyncClass):
         return
 
     async def read(self):
-        logger.debug("AsyncConnection.read")
         try:
             audio = await asyncio.wait_for(self._rx_q.get(), timeout=0.2)
             if len(audio) != 320:
@@ -194,6 +200,7 @@ class AsyncConnection(AsyncClass):
                         audio_data = audio_data[:320]
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + len(audio_data).to_bytes(2, 'big') + audio_data)
+                        self._tx_q.task_done()
                 elif type_byte == types.dtmf:
                     logger.debug(f"AsyncConnection._process DTMF: {payload}")
                     if 'dtmf' in self._event_callbacks:
@@ -209,7 +216,7 @@ class AsyncConnection(AsyncClass):
                         asyncio.create_task(self._event_callbacks['uuid'](payload))
                     self._uuid = str(uuid.UUID(bytes=payload))
         except Exception as e:
-            logger.error(f"AsyncConnection._process error: {e}")
+            logger.exception(f"AsyncConnection._process error: {e}")
         finally:
             await self.close()
 

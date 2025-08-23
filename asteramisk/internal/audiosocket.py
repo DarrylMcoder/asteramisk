@@ -1,7 +1,7 @@
 import socket
 import asyncio
 from dataclasses import dataclass
-from .audiosocket_connection import AsyncConnection
+from .audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.internal.async_class import AsyncClass
 
 import logging
@@ -14,7 +14,7 @@ class audioop_struct:
     channels: int
     ulaw2lin: bool
 
-class AsyncAudiosocket(AsyncClass):
+class AudiosocketAsync(AsyncClass):
     async def __create__(self, bind_info, timeout=None):
         logger.debug("AsyncAudiosocket.__create__")
         # By default, features of audioop (for example: resampling
@@ -78,7 +78,7 @@ class AsyncAudiosocket(AsyncClass):
         logger.debug("AsyncAudiosocket.listen: before sock_accept")
         conn, peer_addr = await loop.sock_accept(self.initial_sock)
         logger.debug("AsyncAudiosocket.listen: after sock_accept")
-        connection = await AsyncConnection.create(
+        connection = await AudioSocketConnectionAsync.create(
             conn,
             peer_addr,
             self.user_resample,
