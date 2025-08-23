@@ -1,4 +1,5 @@
 import uuid
+<<<<<<< HEAD
 import asyncio
 from contextlib import asynccontextmanager
 from panoramisk.actions import Action
@@ -10,6 +11,17 @@ from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.audiosocket import AudiosocketAsync
 from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.config import config
+=======
+import aioari
+import asyncio
+from google.cloud import texttospeech_v1 as texttospeech
+
+from .ui import UI
+from asteramisk.config import config
+from asteramisk.internal.tts import TTSEngine
+from asteramisk.internal.ari_client import AriClient
+from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
+>>>>>>> asteramisk-ari
 
 import logging
 logger = logging.getLogger(__name__)
@@ -20,38 +32,18 @@ class VoiceUI(UI):
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    async def __create__(self, channel: str, voice=config.SYSTEM_VOICE):
+    async def __create__(self, channel: aioari.model.Channel, audconn: AudioSocketConnectionAsync = None, external_media_channel: aioari.model.Channel = None, bridge: aioari.model.Bridge = None, voice=config.SYSTEM_VOICE):
         logger.debug("VoiceUI.__create__")
+        self.channel = channel
+        self.audconn = audconn
         self.voice = voice
-        audsockid = str(uuid.uuid4())
-        audiosocket = await AudiosocketAsync.create()
-        asyncio.create_task(self._connect_channel_to_audiosocket_stream(channel=channel, audsockid=audsockid))
-        self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(audsockid)
+        self.ari = await AriClient.create()
         self.audconn.on('error', self._on_audconn_error)
         self.tts_engine = await TTSEngine.create()
         self.transcribe_engine = await TranscribeEngine.create()
-        self.is_transcribing = asyncio.Event()
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
         await super().__create__()
-
-    async def _connect_channel_to_audiosocket_stream(self, channel: str, audsockid: str):
-        # Connect asterisk channel to the audiosocket
-        manager = Manager(
-            host=config.ASTERISK_HOST,
-            port=config.ASTERISK_AMI_PORT,
-            username=config.ASTERISK_AMI_USER,
-            secret=config.ASTERISK_AMI_PASS
-        )
-        await manager.connect()
-        originate_action = Action({
-            "Action": "Originate",
-            "Channel": f"Audiosocket/{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}/{audsockid}/c(slin)",
-            "Application": "ChanSpy",
-            "Data": f"{channel},qB",
-            "Async": True  # This seems to be required.
-        })
-        await manager.send_action(originate_action)
 
     @asynccontextmanager
     async def event_set(self, event: asyncio.Event):
@@ -66,11 +58,14 @@ class VoiceUI(UI):
         return self.UIType.VOICE
 
     async def answer(self):
+        """ Answers the call """
         logger.debug("VoiceUI.answer")
+        await self.channel.answer()
 
     async def hangup(self):
         logger.debug("VoiceUI.hangup")
         await self.audconn.close()
+        await self.channel.hangup()
         self.out_media_task.cancel()
 
     async def say(self, text) -> None:
@@ -133,5 +128,4 @@ class VoiceUI(UI):
                 self.text_out_queue.task_done()
         except Exception as e:
             logger.exception(f"VoiceUI._out_media_exchanger: {e}")
-
 
