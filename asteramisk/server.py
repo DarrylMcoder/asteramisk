@@ -11,7 +11,7 @@ from asteramisk.ui import VoiceUI, TextUI
 from asteramisk.internal.message_broker import MessageBroker
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.internal.ari_client import AriClient
-from asteramisk.internal.audiosockets import AudioSocketServer
+from asteramisk.internal.audiosocket import AudiosocketAsync
 
 import logging
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class Server(AsyncClass):
         self.host = config.AGI_SERVER_HOST
         self.bindaddr = config.AGI_SERVER_BINDADDR
         self.port = config.AGI_SERVER_PORT
+        self.audiosocket = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
                 ari_port=config.ASTERISK_ARI_PORT,
@@ -121,31 +122,30 @@ class Server(AsyncClass):
         stream_id = str(uuid.uuid4())
         logger.info(f"Creating external media channel with stream id {stream_id}")
 
-        external_media_channel: aioari.model.Channel = await self.ari.channels.create(
-            endpoint=f"AudioSocket/127.0.0.1:51001/{stream_id}",
+        external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
+            external_host=f"127.0.0.1:51001",
+            encapsulation="audiosocket",
             app="external_media",
-            formats="slin16"
+            transport="tcp",
+            format="slin16",
+            data=stream_id
         )
 
-        await external_media_channel.dial(caller=channel.id)
-
-        dummy_channel: aioari.model.Channel = await self.ari.channels.create(
-            endpoint="PJSIP/darryl",
-            app="snoop"
-        )
-
-        await dummy_channel.dial(caller=channel.id)
+        print("External media channel created")
+        print(external_media_channel.json)
 
         bridge = await self.ari.bridges.create(
             type="mixing",
         )
 
-        await self.ari.applications.subscribe(
-                eventSource=f"bridge:{bridge.id}",
-                applicationName="snoop"
-            )
+        print("Bridge created")
+        print(bridge.json)
 
         await bridge.addChannel(channel=[channel.id, external_media_channel.id])
+
+        bridge = await bridge.get()
+        print("Bridge updated")
+        print(bridge.json)
 
         #audio_socket = await self.audiosocket_server.accept(stream_id)
 
