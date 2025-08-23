@@ -1,29 +1,38 @@
 import os
+import uuid
+import aioari
 import asyncio
 import panoramisk.fast_agi
 import panoramisk.actions
 import panoramisk.manager
 
-import asteramisk.ui
 from asteramisk.config import config
+from asteramisk.ui import VoiceUI, TextUI
 from asteramisk.internal.message_broker import MessageBroker
+from asteramisk.internal.async_class import AsyncClass
+from asteramisk.internal.ari_client import AriClient
+from asteramisk.internal.audiosockets import AudioSocketServer
 
 import logging
 logger = logging.getLogger(__name__)
 
-class Server:
-    def __init__(self, host=config.AGI_SERVER_HOST, bindaddr=config.AGI_SERVER_BINDADDR, port=config.AGI_SERVER_PORT):
-        self.host = host
-        self.bindaddr = bindaddr
-        self.port = port
-        if not self.host:
-            raise ValueError("Must provide a host. Either set the AGI_SERVER_HOST environment variable, set config.AGI_SERVER_HOST or pass it to the constructor")
-        if not self.bindaddr:
-            raise ValueError("Must provide a bind address. Either set the AGI_SERVER_BINDADDR environment variable, set config.AGI_SERVER_BINDADDR or pass it to the constructor")
-        if not self.port:
-            raise ValueError("Must provide a port. Either set the AGI_SERVER_PORT environment variable, set config.AGI_SERVER_PORT or pass it to the constructor")
-
+class Server(AsyncClass):
+    async def __create__(self, stasis_app=None):
+        self.host = config.AGI_SERVER_HOST
+        self.bindaddr = config.AGI_SERVER_BINDADDR
+        self.port = config.AGI_SERVER_PORT
+        self.ari: aioari.Client = await AriClient.create(
+                ari_host=config.ASTERISK_HOST,
+                ari_port=config.ASTERISK_ARI_PORT,
+                ari_user=config.ASTERISK_ARI_USER,
+                ari_pass=config.ASTERISK_ARI_PASS
+            )
+        #self.audiosocket_server = await AudioSocketServer.create(host="0.0.0.0", port=51000)
         self.handlers = {}
+        self.stasis_app = stasis_app
+        if not self.stasis_app:
+            # Unique ID for Stasis application so that there are no conflicts with multiple instances
+            self.stasis_app = uuid.uuid4().hex
 
     async def register_extension(self, extension, call_handler=None, message_handler=None):
         """
@@ -52,16 +61,6 @@ class Server:
         await self._register_extension(extension, 'text')
 
     async def _register_extension(self, extension, extension_type):
-        registration_action = panoramisk.actions.Action({
-            "Action": "DialPlanExtensionAdd",
-            "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
-            "Extension": extension,
-            "Priority": 1,
-            "Application": "AGI",
-            "ApplicationData": f"agi://{self.host}:{self.port}/{extension_type}_handler",
-            "Replace": "yes"
-        })
-
         manager = panoramisk.manager.Manager(
                 host=config.ASTERISK_HOST,
                 port=config.ASTERISK_AMI_PORT,
@@ -69,8 +68,18 @@ class Server:
                 secret=config.ASTERISK_AMI_PASS,
                 ssl=False
             )
-
         await manager.connect()
+
+        registration_action = panoramisk.actions.Action({
+            "Action": "DialPlanExtensionAdd",
+            "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
+            "Extension": extension,
+            "Priority": 1,
+            "Application": "Stasis",
+            "ApplicationData": f"{self.stasis_app},{extension_type}",
+            "Replace": "yes"
+        })
+
         await manager.send_action(registration_action)
         manager.close()
 
@@ -78,61 +87,94 @@ class Server:
         # Error if not running as root
         if not os.geteuid() == 0:
             raise Exception("Must be run as root")
+        self.ari.on_channel_event("StasisStart", self._ari_stasis_start_handler)
+        await asyncio.gather(
+                self.ari.run(
+                        apps=[
+                            self.stasis_app,
+                            "external_media",
+                            "snoop"
+                        ]
+                    )
+        )
 
-        fa_app = panoramisk.fast_agi.Application()
-        fa_app.add_route("call_handler", self._call_request_handler)
-        fa_app.add_route("text_handler", self._message_request_handler)
-        server = await asyncio.start_server(fa_app.handler, self.bindaddr, self.port)
-        logger.info('Asteramisk server started on {}'.format(server.sockets[0].getsockname()))
+    async def _ari_stasis_start_handler(self, objs, event):
+        if event['application'] == self.stasis_app:
+            await self._main_handler(objs, event)
+        else:
+            logger.debug(f"Application {event['application']} has no handler. Probably ok if the code that created it is also controlling it")
 
-        try:
-            await server.serve_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            server.close()
+    async def _main_handler(self, objs, event):
+        channel = objs['channel']
+        extension_type = event['args'][0]
+        if extension_type == 'call':
+            await self._call_request_handler(channel)
+        elif extension_type == 'text':
+            await self._message_request_handler(channel)
 
-    async def _call_request_handler(self, request: panoramisk.fast_agi.Request):
+    async def _call_request_handler(self, channel: aioari.model.Channel):
         """
-        Called when an AGI request is received.
+        Called when an call is received.
         This is registered as the callback for call requests.
         Once per call.
         """
-        channel = request.headers['agi_channel']
-        extension = request.headers['agi_extension']
+        stream_id = str(uuid.uuid4())
+        logger.info(f"Creating external media channel with stream id {stream_id}")
 
-        # Put the channel into Async AGI mode
-        await request.send_command("EXEC AGI agi:async")
+        external_media_channel: aioari.model.Channel = await self.ari.channels.create(
+            endpoint=f"AudioSocket/127.0.0.1:51001/{stream_id}",
+            app="external_media",
+            formats="slin16"
+        )
 
-        ui = asteramisk.ui.VoiceUI(channel)
-        logger.info("Created VoiceUI")
+        await external_media_channel.dial(caller=channel.id)
+
+        dummy_channel: aioari.model.Channel = await self.ari.channels.create(
+            endpoint="PJSIP/darryl",
+            app="snoop"
+        )
+
+        await dummy_channel.dial(caller=channel.id)
+
+        bridge = await self.ari.bridges.create(
+            type="mixing",
+        )
+
+        await self.ari.applications.subscribe(
+                eventSource=f"bridge:{bridge.id}",
+                applicationName="snoop"
+            )
+
+        await bridge.addChannel(channel=[channel.id, external_media_channel.id])
+
+        #audio_socket = await self.audiosocket_server.accept(stream_id)
+
+        #ui = await VoiceUI.create(channel, audio_socket, external_media_channel, bridge)
+        extension = (await channel.getChannelVar(variable="EXTEN"))['value']
         call_handler, _ = self.handlers[extension]
+        #await call_handler(ui)
 
-        logger.info(f"Calling handler for extension {extension}")
-        await call_handler(ui)
-
-    async def _message_request_handler(self, request: panoramisk.fast_agi.Request):
+    async def _message_request_handler(self, channel: aioari.model.Channel):
         """
-        Called when an AGI request is received.
+        Called when a message is received.
         This is registered as the callback for message requests.
         Once per message.
         """
-        # TODO: Get phone number and message properly
-        phone_number = request.headers['agi_arg_1']
-        message = request.headers['agi_arg_2']
-        extension = request.headers['agi_extension']
+        phone_number = (await channel.getChannelVar(variable="MESSAGE(from)"))['value']
+        message = (await channel.getChannelVar(variable="MESSAGE(body)"))['value']
+        extension = (await channel.getChannelVar(variable="EXTEN"))['value']
 
-        broker = MessageBroker()
+        broker = await MessageBroker.create(our_number=extension)
         if broker.has_conversation(phone_number):
             # Existing conversation, use the existing UI and simply pass the message to it via the broker
             await broker.message_received(phone_number, message)
         else:
             # New conversation
-            ui = asteramisk.ui.TextUI(phone_number)
+            ui = await TextUI.create(phone_number)
             _, message_handler = self.handlers[extension]
             await message_handler(ui)
 
-    async def call_handler(self, ui: asteramisk.ui.VoiceUI):
+    async def call_handler(self, ui: VoiceUI):
         """
         Called when a call is received.
         Override this to handle the call.
@@ -140,7 +182,7 @@ class Server:
         """
         raise NotImplementedError
 
-    async def message_handler(self, ui: asteramisk.ui.VoiceUI):
+    async def message_handler(self, ui: TextUI):
         """
         Called when a new messaging conversation is started.
         Override this to handle the message.

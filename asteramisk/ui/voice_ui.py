@@ -1,11 +1,13 @@
 import uuid
+import aioari
+import asyncio
+from google.cloud import texttospeech_v1 as texttospeech
 
 from .ui import UI
-from asteramisk.internal.async_agi import AsyncAsteriskGatewayInterface
-from asteramisk.exceptions import GoBackException, GoToMainException, AGIException
 from asteramisk.config import config
 from asteramisk.internal.tts import TTSEngine
-from asteramisk.internal.transcriber import TranscribeEngine
+from asteramisk.internal.ari_client import AriClient
+from asteramisk.internal.audiosockets import AudioSocket
 
 import logging
 logger = logging.getLogger(__name__)
@@ -16,81 +18,45 @@ class VoiceUI(UI):
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    def __init__(self, channel, voice=config.SYSTEM_VOICE):
-        self.agi = AsyncAsteriskGatewayInterface(channel)
-        self.transcriber = TranscribeEngine()
-        self.tts = TTSEngine()
+    # Generate a list of 1000 available ports
+    external_media_ports = [x for x in range(50000, 51000)]
+
+    async def __create__(self, channel: aioari.model.Channel, audio_socket: AudioSocket, external_media_channel: aioari.model.Channel, bridge: aioari.model.Bridge, voice=config.SYSTEM_VOICE):
+        self.texttospeech_client = texttospeech.TextToSpeechAsyncClient()
+        self.ari = await AriClient.create()
+        self.tts = await TTSEngine.create()
+        self.text_queue = asyncio.Queue(maxsize=1)
+        self.channel = channel
+        self.audio_socket = audio_socket
+        self.external_media_channel = external_media_channel
+        self.bridge = bridge
         self.voice = voice
-        super().__init__()
+        self.channel.on_event('StasisEnd', lambda *args: self.hangup)
+        await super().__create__()
 
     @property
     def ui_type(self):
         return self.UIType.VOICE
 
-    async def send_command(self, command):
-        """
-        Sends an AGI command to Asterisk
-        :param: command: Command to send
-        :return: dict: Result of the AGI command
-        """
-        return await self.agi.send_command(command)
+    async def _media_exchange(self):
+        while True:
+            packet = await self.audio_socket.read()
+            await self.audio_socket.write(packet)
 
     async def answer(self):
         """ Answers the call """
-        await self.agi.connect()
-        await self.send_command('ANSWER')
+        await self.channel.answer()
 
     async def hangup(self):
         """ Hangs up the call """
-        await self.send_command('HANGUP')
-        await self.agi.close()
-
-    async def _get_data(self, filename, num_digits=None) -> str:
-        """
-        Get data from Asterisk. Sends GET DATA AGI command
-        :param filename: Name of the file to play
-        :param num_digits: Number of digits to wait for
-        :return: DTMF digits
-        """
-        # So we don't have to wait long if we're just waiting in case of goback
-        # Because i use this function for situations like play where we don't want any return data
-        if num_digits is None:
-            timeout = 10
-            num_digits = 1
-        else:
-            timeout = 2000
-        response = await self.send_command(f"GET DATA {filename} {timeout} {num_digits}")
-        if 'error' in response and 'msg' in response:
-            raise AGIException(response['msg'])
-        digits = response['result'][0]
-        if digits == '*':
-            raise GoBackException
-        if digits == '#':
-            raise GoToMainException
-        return digits
-
-    async def play(self, filename) -> None:
-        """
-        Play file
-        :param filename: Name of the file to play, without the extension
-        File must be in asterisk sounds directory
-        e.g. "recordings/recording".
-        :raise GoBackException: If the user presses *
-        :raise GoToMainException: If the user presses #
-        """
-        await self._get_data(filename)
-        return
+        await self.channel.hangup()
 
     async def say(self, text) -> None:
         """
-        Speak text to the user
-        :param text: Text to speak
-        :raise: GoBackException: if the user presses *
-        :raise: GotoMainException: if the user presses #
+        Say text to the user
+        :param text: Text to say
         """
-        filename = await self.tts.convert_async(text, self.voice)
-        await self.play(filename)
-        return
+        await self.text_queue.put(text)
 
     async def record(self, prompt=None, filename=None, timeout=10000, playbeep=True, silence=2500):
         """
