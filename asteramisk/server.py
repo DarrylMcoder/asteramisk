@@ -28,7 +28,6 @@ class Server(AsyncClass):
                 ari_user=config.ASTERISK_ARI_USER,
                 ari_pass=config.ASTERISK_ARI_PASS
             )
-        #self.audiosocket_server = await AudioSocketServer.create(host="0.0.0.0", port=51000)
         self.handlers = {}
         self.stasis_app = stasis_app
         if not self.stasis_app:
@@ -93,8 +92,7 @@ class Server(AsyncClass):
                 self.ari.run(
                         apps=[
                             self.stasis_app,
-                            "external_media",
-                            "snoop"
+                            "general",
                         ]
                     )
         )
@@ -123,11 +121,11 @@ class Server(AsyncClass):
         logger.info(f"Creating external media channel with stream id {stream_id}")
 
         external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
-            external_host=f"127.0.0.1:51001",
+            external_host=f"{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}",
             encapsulation="audiosocket",
-            app="external_media",
+            app="general",
             transport="tcp",
-            format="slin16",
+            format="slin",
             data=stream_id
         )
 
@@ -135,24 +133,25 @@ class Server(AsyncClass):
         print(external_media_channel.json)
 
         bridge = await self.ari.bridges.create(
-            type="mixing",
+            type="mixing"
         )
 
-        print("Bridge created")
-        print(bridge.json)
+        await bridge.addChannel(channel=channel.id)
+        await bridge.addChannel(channel=external_media_channel.id)
 
-        await bridge.addChannel(channel=[channel.id, external_media_channel.id])
+        audconn = await self.audiosocket.accept(stream_id)
 
-        bridge = await bridge.get()
-        print("Bridge updated")
-        print(bridge.json)
+        async def cleanup():
+            await bridge.destroy()
+            await external_media_channel.hangup()
+            await audconn.close()
 
-        #audio_socket = await self.audiosocket_server.accept(stream_id)
+        channel.on_event('StasisEnd', cleanup)
 
-        #ui = await VoiceUI.create(channel, audio_socket, external_media_channel, bridge)
+        ui = await VoiceUI.create(channel, audconn)
         extension = (await channel.getChannelVar(variable="EXTEN"))['value']
         call_handler, _ = self.handlers[extension]
-        #await call_handler(ui)
+        await call_handler(ui)
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
         """

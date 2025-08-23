@@ -72,7 +72,7 @@ class AudiosocketAsync(AsyncSingleton):
         except Exception as e:
             logger.error(f"AsyncAudiosocket._listen_loop error: {e}")
 
-    async def accept(self, stream_id=None):
+    async def accept(self, stream_id):
         logger.debug(f"AsyncAudiosocket.accept: waiting for connection {stream_id}")
         while stream_id not in self.connections:
             logger.debug(f"AsyncAudiosocket.accept: waiting for connection {stream_id}")

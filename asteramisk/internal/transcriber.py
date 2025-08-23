@@ -1,23 +1,45 @@
 import os
-import asyncio
 from pydub import AudioSegment
+from google.cloud import speech_v1 as speech
 
 from asteramisk.internal.async_singleton import AsyncSingleton
+from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 
 class TranscribeEngine(AsyncSingleton):
 
     async def __create__(self):
-        # Import locally because it complains about missing GOOGLE_APPLICATION_CREDENTIALS environment variable even when generating documentation
-        from google.cloud import speech_v1 as speech
-        self.client = speech.SpeechClient()
+        self.client = speech.SpeechAsyncClient()
 
-    async def transcribe_async(self, filename, hint_phrases=[]) -> str:
-        """
-        Asynchronously transcribe the given audio file.
-        :param filename: The full path to the audio file. Must be a .gsm file, which is the format commonly used by asterisk
-        :return: The transcribed text
-        """
-        return await asyncio.to_thread(self._transcribe, filename, hint_phrases)
+    async def transcribe_from_stream(self, stream: AudioSocketConnectionAsync):
+        async def transcribe_request_generator():
+            yield speech.StreamingRecognizeRequest(
+                streaming_config=speech.StreamingRecognitionConfig(
+                    config=speech.RecognitionConfig(
+                        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                        model="phone_call",
+                        sample_rate_hertz=8000,
+                        enable_automatic_punctuation=True,
+                        language_code="en-US",
+                        use_enhanced=True,
+                    ),
+                )
+            )
+            while True:
+                audio = await stream.read()
+                yield speech.StreamingRecognizeRequest(audio_content=audio)
+
+        async for response in await self.client.streaming_recognize(
+            requests=transcribe_request_generator(),
+        ):
+            print("Response: ", response)
+            if response.results and response.results[0].alternatives and response.results[0].alternatives[0].transcript:
+                if response.results[0].is_final:
+                    print("Transcript: ", response.results[0].alternatives[0].transcript)
+                    # Stop any outgoing speech when we start transcribing
+                    await stream.clear_send_queue()
+                    return response.results[0].alternatives[0].transcript
+
+        return ""
 
     def _transcribe(self, filename, hint_phrases=[]):
         """
