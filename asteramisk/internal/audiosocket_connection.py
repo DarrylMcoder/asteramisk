@@ -56,6 +56,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         self._asterisk_resample = asterisk_resample
         self._rx_q = asyncio.Queue(500)
         self._tx_q = asyncio.Queue(500)
+        self._tx_extra_data = b''
         self._lock = asyncio.Lock()
         self._event_callbacks = {}
         self._loop = asyncio.get_running_loop()
@@ -196,8 +197,14 @@ class AudioSocketConnectionAsync(AsyncClass):
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
                     else:
-                        audio_data = await self._tx_q.get()
-                        audio_data = audio_data[:320]
+                        audio_data = self._tx_extra_data
+                        while len(audio_data) < 320 and not self._tx_q.empty():
+                            audio_data += await self._tx_q.get()
+
+                        if len(audio_data) > 320:
+                            self._tx_extra_data = audio_data[320:]
+                            audio_data = audio_data[:320]
+
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + len(audio_data).to_bytes(2, 'big') + audio_data)
                         self._tx_q.task_done()
@@ -226,5 +233,5 @@ class AudioSocketConnectionAsync(AsyncClass):
             self.conn.close()
         if hasattr(self, '_task'):
             self._task.cancel()
-            with suppress(asyncio.CancelledError):
+            with suppress(RuntimeError, asyncio.CancelledError):
                 await self._task
