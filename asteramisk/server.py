@@ -2,7 +2,6 @@ import os
 import uuid
 import aioari
 import asyncio
-import contextlib
 import panoramisk.fast_agi
 import panoramisk.actions
 import panoramisk.manager
@@ -100,7 +99,7 @@ class Server(AsyncClass):
 
     async def _ari_stasis_start_handler(self, objs, event):
         if event['application'] == self.stasis_app:
-            await self._main_handler(objs, event)
+            asyncio.create_task(self._main_handler(objs, event))
         else:
             logger.debug(f"Application {event['application']} has no handler. Probably ok if the code that created it is also controlling it")
 
@@ -118,38 +117,7 @@ class Server(AsyncClass):
         This is registered as the callback for call requests.
         Once per call.
         """
-        stream_id = str(uuid.uuid4())
-        logger.info(f"Creating external media channel with stream id {stream_id}")
-
-        external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
-            external_host=f"{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}",
-            encapsulation="audiosocket",
-            app="general",
-            transport="tcp",
-            format="slin",
-            data=stream_id
-        )
-
-        print("External media channel created")
-        print(external_media_channel.json)
-
-        bridge = await self.ari.bridges.create(
-            type="mixing"
-        )
-
-        await bridge.addChannel(channel=channel.id)
-        await bridge.addChannel(channel=external_media_channel.id)
-
-        audconn = await self.audiosocket.accept(stream_id)
-
-        async def cleanup():
-            await bridge.destroy()
-            await external_media_channel.hangup()
-            await audconn.close()
-
-        channel.on_event('StasisEnd', cleanup)
-
-        ui = await VoiceUI.create(channel, audconn)
+        ui = await VoiceUI.create(channel)
         extension = (await channel.getChannelVar(variable="EXTEN"))['value']
         call_handler, _ = self.handlers[extension]
         await call_handler(ui)

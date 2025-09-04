@@ -1,6 +1,5 @@
-import socket
 import asyncio
-from asteramisk.internal.audiosocket import AudiosocketAsync, AudioSocketConnectionAsync
+from asteramisk.internal.audiosocket import AudiosocketAsync
 
 import logging
 logging.basicConfig(level=logging.DEBUG)

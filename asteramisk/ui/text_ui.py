@@ -4,23 +4,30 @@ from .ui import UI
 
 class TextUI(UI):
     async def __create__(self, recipient_number, our_callerid_number=config.SYSTEM_PHONE_NUMBER, our_callerid_name=config.SYSTEM_NAME):
-        self._broker = await MessageBroker.create(our_callerid_number)
+        self._broker: MessageBroker = await MessageBroker.create(our_callerid_number)
         self._recipient_number = recipient_number
         self._our_callerid_number = our_callerid_number
         self._our_callerid_name = our_callerid_name
+        self.is_active = False
         super().__create__()
 
     @property
     def ui_type(self):
         return self.UIType.TEXT
+
+    @property
+    def _unique_id(self):
+        return self._recipient_number
     
     async def answer(self):
         """ \"Answer\" the call. Mostly for compatibility with other UIs. Connects to the broker. """
         await self._broker.connect()
+        self.is_active = True
 
     async def hangup(self):
         """ \"Hangup\" the call. Mostly for compatibility with other UIs. Closes the broker. """
         await self._broker.close()
+        self.is_active = False
     
     async def say(self, text):
         """
@@ -58,6 +65,12 @@ class TextUI(UI):
         :return: True if the user answers yes or False if the user answers no
         """
         message = f"{text} (yes/no)"
-        return await self.prompt(message)
+        response = await self.prompt(message)
+        return 'yes' in response.lower()
+
+    async def input_stream(self):
+        while self.is_active:
+            message = await self._broker.get_incoming_message(self._recipient_number)
+            yield message
 
 

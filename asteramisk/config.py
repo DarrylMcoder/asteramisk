@@ -58,6 +58,11 @@ class Config:
     SYSTEM_VOICE = os.getenv('SYSTEM_VOICE', 'en-US-Neural2-J')
     """ The voice to use when speaking to the user. Default is en-US-Neural2-J. See https://cloud.google.com/text-to-speech/docs/voices for all available voices """
 
+    DEFAULT_REALTIME_GPT_MODEL = os.getenv('DEFAULT_REALTIME_GPT_MODEL', 'gpt-4o-mini-realtime-preview')
+    """ The default model to use for when connecting to the OpenAI Realtime API using the UI's connect_openai_agent method. Default is gpt-4o-mini-realtime-preview """
+    DEFAULT_GPT_MODEL = os.getenv('DEFAULT_GPT_MODEL', 'gpt-4o-mini')
+    """ The default model to use for when connecting to the OpenAI API using the UI's connect_openai_agent method. Default is gpt-4o-mini """
+
     @property
     def GOOGLE_APPLICATION_CREDENTIALS(self):
         """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """
