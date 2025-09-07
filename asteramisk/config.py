@@ -63,6 +63,9 @@ class Config:
     DEFAULT_GPT_MODEL = os.getenv('DEFAULT_GPT_MODEL', 'gpt-4o-mini')
     """ The default model to use for when connecting to the OpenAI API using the UI's connect_openai_agent method. Default is gpt-4o-mini """
 
+    OUTBOUND_CALL_TIMEOUT = os.getenv('OUTBOUND_CALL_TIMEOUT', 30)
+    """ The timeout in seconds for outbound calls. Default is 30 seconds. """
+
     @property
     def GOOGLE_APPLICATION_CREDENTIALS(self):
         """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """

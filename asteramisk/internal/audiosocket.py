@@ -1,19 +1,11 @@
 import socket
 import asyncio
-from dataclasses import dataclass
 from .audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.internal.async_singleton import AsyncSingleton
 from asteramisk.config import config
 
 import logging
 logger = logging.getLogger(__name__)
-
-@dataclass
-class audioop_struct:
-    ratecv_state: None
-    rate: int
-    channels: int
-    ulaw2lin: bool
 
 class AudiosocketAsync(AsyncSingleton):
     async def __create__(self, bind_addr=config.AUDIOSOCKET_BINDADDR, bind_port=config.AUDIOSOCKET_PORT, timeout=None):
@@ -44,22 +36,6 @@ class AudiosocketAsync(AsyncSingleton):
         # Start the listening loop
         asyncio.create_task(self._listen_loop())
 
-    async def prepare_input(self, inrate=44000, channels=2, ulaw2lin=False):
-        self.user_resample = audioop_struct(
-            rate=inrate,
-            channels=channels,
-            ulaw2lin=ulaw2lin,
-            ratecv_state=None,
-        )
-
-    async def prepare_output(self, outrate=44000, channels=2, ulaw2lin=False):
-        self.asterisk_resample = audioop_struct(
-            rate=outrate,
-            channels=channels,
-            ulaw2lin=ulaw2lin,
-            ratecv_state=None,
-        )
-
     async def _listen_loop(self):
         try:
             logger.debug("AsyncAudiosocket._listen_loop")
@@ -87,9 +63,7 @@ class AudiosocketAsync(AsyncSingleton):
         logger.debug("AsyncAudiosocket.listen: after sock_accept")
         connection = await AudioSocketConnectionAsync.create(
             conn,
-            peer_addr,
-            self.user_resample,
-            self.asterisk_resample,
+            peer_addr
         )
         return connection
 

@@ -2,13 +2,16 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
+from agents import Agent
+from agents.realtime import RealtimeAgent
 from contextlib import asynccontextmanager, suppress
 
 from .ui import UI
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
-from asteramisk.internal.audiosocket import AudiosocketAsync, AudioSocketConnectionAsync
+from asteramisk.internal.audiosocket import AudiosocketAsync
+from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.config import config
 
 
@@ -33,7 +36,7 @@ class VoiceUI(UI):
         self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
             external_host=f"{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}",
             encapsulation="audiosocket",
-            app="general",
+            app="asteramisk",
             transport="tcp",
             format="slin",
             data=stream_id)
@@ -42,7 +45,7 @@ class VoiceUI(UI):
 
         await self.bridge.addChannel(channel=self.external_media_channel.id)
         await self.bridge.addChannel(channel=self.channel.id)
-        self.audconn: AudiosocketConnectionAsync = await audiosocket.accept(stream_id)
+        self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
         self.channel.on_event('StasisEnd', self._on_channel_stasis_end)
         self.channel.on_event('ChannelDtmfReceived', self._on_channel_dtmf_received)
         self.tts_engine: TTSEngine = await TTSEngine.create()
@@ -74,6 +77,7 @@ class VoiceUI(UI):
         logger.debug("VoiceUI.answer")
         await self.channel.answer()
         self.answered = True
+        self.is_active = True
 
     async def hangup(self):
         logger.debug("VoiceUI.hangup")
@@ -82,6 +86,7 @@ class VoiceUI(UI):
         await self.channel.hangup()
         await self.bridge.destroy()
         self.out_media_task.cancel()
+        self.is_active = False
 
     async def say(self, text) -> None:
         """
@@ -167,9 +172,27 @@ class VoiceUI(UI):
         self.dtmf_callbacks["4"] = rewind
         self.dtmf_callbacks["5"] = pause_toggle
         self.dtmf_callbacks["6"] = forward
+
+    async def _connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
+        """
+        Connects an OpenAI agent to the voice UI
+        :param agent: The OpenAI agent to connect. This can be either an Agent or a RealtimeAgent. If it's a RealtimeAgent, a realtime session will be started, otherwise we will transcribe the audio ourselves
+        :param talk_first: Whether or not the agent should speak first
+        :param model: The OpenAI model to use
+        """
+        async def _run_agent():
+            if isinstance(agent, RealtimeAgent):
+                await self._run_realtime_agent(agent, talk_first, model)
+            elif isinstance(agent, Agent):
+                await self._run_agent(agent, talk_first, model)
+            else:
+                raise ValueError("agent must be either an Agent or a RealtimeAgent")
+
+
             
     async def _on_channel_stasis_end(self, objs, event):
         logger.debug("VoiceUI._on_channel_stasis_end")
+        logger.info("Caller has hung up")
         await self.audconn.hangup()
         await asyncio.sleep(0.1)
         await self.audconn.close()
@@ -177,7 +200,7 @@ class VoiceUI(UI):
             await self.external_media_channel.hangup()
         await self.bridge.destroy()
         self.out_media_task.cancel()
-        self.connected = False
+        self.is_active = False
 
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")

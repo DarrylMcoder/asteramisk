@@ -1,3 +1,4 @@
+import aiohttp
 from typing import Union
 from panoramisk import Manager
 from panoramisk.actions import Action
@@ -5,6 +6,7 @@ from panoramisk.actions import Action
 import asteramisk.ui
 import asteramisk.exceptions
 from asteramisk.config import config
+from asteramisk.internal.ari_client import AriClient
 from asteramisk.internal.async_class import AsyncClass
 
 import logging
@@ -46,6 +48,7 @@ class Communicator(AsyncClass):
         self._callerid_number = callerid_number
         self._callerid_name = callerid_name
 
+        self._ari_client = await AriClient.create()
         self._manager = Manager(
             host=config.ASTERISK_HOST,
             port=config.ASTERISK_AMI_PORT,
@@ -73,26 +76,15 @@ class Communicator(AsyncClass):
     async def make_call(self,
                         recipient_number=None,
                         channel=None,
-                        application="AGI",
-                        data="agi:async",
                         callerid_number=None,
                         callerid_name=None) -> asteramisk.ui.VoiceUI:
         """ 
         Makes a call to the recipient and returns a VoiceUI object.
         :param recipient_number: The number to call. Uses PJSIP with voip.ms
-        :type recipient_number: str
         :param channel: The channel to dial for the call. Mutually exclusive with recipient_number
-        :type channel: str
-        :param application: The application to execute at our end of the call.
-        :type application: str
-        :param data: The data to pass to the application.
-        :type data: str
         :param callerid_number: The number to use for the caller ID.
-        :type callerid_number: str
         :param callerid_name: The name to use for the caller ID.
-        :type callerid_name: str
         :return: An asteramisk.ui.VoiceUI object.
-        :rtype: asteramisk.ui.VoiceUI
         :raises ValueError: If neither recipient_number or channel is provided or both are provided
         :raises asteramisk.exceptions.CallFailedException: If the call fails
         """
@@ -102,10 +94,8 @@ class Communicator(AsyncClass):
         if recipient_number and channel:
             raise ValueError("Cannot provide both recipient_number and channel")
 
-        if not callerid_number:
-            callerid_number = self._callerid_number
-        if not callerid_name:
-            callerid_name = self._callerid_name
+        callerid_number = callerid_number or self._callerid_number
+        callerid_name = callerid_name or self._callerid_name
 
         if recipient_number:
             channel = f"PJSIP/{recipient_number}@{config.ASTERISK_PSTN_ENDPOINT}"
@@ -114,13 +104,18 @@ class Communicator(AsyncClass):
             logger.warning(f"Caller ID number {callerid_number} is not 10 digits. It will not work. Will be replaced with default number.")
             callerid_number = config.SYSTEM_PHONE_NUMBER
 
+        if not callerid_name:
+            logger.warning("Caller ID name is not set. No caller ID name will be used.")
+        if not callerid_number:
+            logger.warning("Caller ID number is not set. This will not work unless this is a call to a local extension on our system.")
+
         logger.info(f"Making call to {recipient_number} on channel {channel}")
 
         originate_action = Action({
             "Action": "Originate",
             "Channel": channel,
-            "Application": application,
-            "Data": data,
+            "Application": "Stasis",
+            "Data": "asteramisk",
             "CallerID": f"{callerid_name} <{callerid_number}>",
             "Async": True  # This seems to be required.
         })
@@ -134,11 +129,22 @@ class Communicator(AsyncClass):
                 raise asteramisk.exceptions.CallFailedException(f"Failed to make call to {recipient_number}")
 
         # Get the channel
-        if not response[1].channel:
-            raise asteramisk.exceptions.CallFailedException(f"Failed to get channel for call to {recipient_number}")
-        channel = response[1].channel
+        if not response[1].uniqueid:
+            raise asteramisk.exceptions.CallFailedException(f"Failed to get channel for call to {recipient_number or channel}")
+        channel_id = response[1].uniqueid
 
-        ui = await asteramisk.ui.VoiceUI.create(channel)
+        print(f"Got channel {channel_id}")
+
+        # TODO: Make this whole method use ARI rather than AMI
+        # I tried to use ARI, but couldn't figure out whether the call was successful or not
+        # It would be possible to use ARI, but this is easier for now
+        try:
+            asteramisk_app = await self._ari_client.applications.get(applicationName="asteramisk")
+        except aiohttp.web_exceptions.HTTPNotFound:
+            raise asteramisk.exceptions.AsteramiskException("The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.")
+        ari_channel = await self._ari_client.channels.get(channelId=channel_id)
+
+        ui = await asteramisk.ui.VoiceUI.create(ari_channel)
         return ui
 
     async def make_text(self,

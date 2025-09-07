@@ -1,12 +1,7 @@
-import io
-import time
-import pydub
-import numpy
-import resampy
 import asyncio
 from typing import Any
-from agents import Agent, SQLiteSession, Runner, RunResult, RunResultStreaming, ItemHelpers
-from agents.realtime import RealtimeAgent, RealtimeSession, RealtimeRunner, RealtimeModel, RealtimeRunConfig
+from agents import Agent, SQLiteSession, Runner, RunResult
+from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.config import config
@@ -150,6 +145,7 @@ class UI(AsyncClass):
             if self.ui_type == self.UIType.TEXT and isinstance(agent, RealtimeAgent):
                 raise ValueError("RealtimeAgent is not supported for text UIs")
             elif self.ui_type == self.UIType.VOICE and isinstance(agent, RealtimeAgent):
+                await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
                 if model is None:
                     # Use the cheaper mini model rather than the default GPT-4o
                     model = config.DEFAULT_REALTIME_GPT_MODEL
@@ -168,23 +164,28 @@ class UI(AsyncClass):
                     async def audio_loop():
                         # Directly pass audio from the UI to the OpenAI session
                         while self.is_active:
+                            logger.debug("audio_loop: Waiting for audio")
                             audio = await self.audconn.read()
-                            audio = resampy.resample(numpy.frombuffer(audio, dtype="int16"), 8000, 24000).astype(numpy.int16).tobytes()
                             await session.send_audio(audio)
                     asyncio.create_task(audio_loop())
-                    count = 0
                     async for event in session:
-                        count += 1
                         print(event.type)
-                        if count < 5:
-                            print(event)
                         if event.type == "audio":
                             audio = event.audio.data
-                            audio = resampy.resample(numpy.frombuffer(audio, dtype="int16"), 24000, 8000).astype(numpy.int16).tobytes()
+                            logger.debug("audio_out: Got audio")
                             await self.audconn.write(audio)
+                            logger.debug("audio_out: Wrote audio")
                         elif event.type == "audio_interrupted":
                             # Audio was interrupted, stop speaking and listen
                             await self.audconn.clear_send_queue()
+                        elif event.type == "raw_model_event":
+                            print(" ", event.data.type)
+                            if event.data.type == "raw_server_event":
+                                print("     ", event.data.data["type"])
+                                if event.data.data["type"].count("rate") > 0:
+                                    print("         ", event)
+                        elif event.type == "error":
+                            logger.error(f"OpenAI session error: {event}")
 
             elif isinstance(agent, Agent):
                 # If the agent is text based, regardless of the UI type

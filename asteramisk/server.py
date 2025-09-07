@@ -92,7 +92,7 @@ class Server(AsyncClass):
                 self.ari.run(
                         apps=[
                             self.stasis_app,
-                            "general",
+                            "asteramisk"
                         ]
                     )
         )

@@ -1,5 +1,4 @@
 import uuid
-import audioop
 import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
@@ -46,16 +45,18 @@ class errors_struct:
 errors = errors_struct()
 
 class AudioSocketConnectionAsync(AsyncClass):
-    async def __create__(self, conn, peer_addr, user_resample, asterisk_resample):
+    async def __create__(self, conn, peer_addr):
         logger.debug("AsyncConnection.__create__")
         self.conn = conn
         self.peer_addr = peer_addr
         self._uuid = None
         self.connected = True
-        self._user_resample = user_resample
-        self._asterisk_resample = asterisk_resample
         self._rx_q = asyncio.Queue(500)
         self._tx_q = asyncio.Queue(500)
+        self._from_asterisk_resample_factor = 1
+        self._to_asterisk_resample_factor = 1
+        self._from_asterisk_resampler = None
+        self._to_asterisk_resampler = None
         self._tx_extra_data = b''
         self._lock = asyncio.Lock()
         self._event_callbacks = {}
@@ -68,6 +69,61 @@ class AudioSocketConnectionAsync(AsyncClass):
             raise ValueError(f"Trying to register an invalid event: {event}")
 
         self._event_callbacks[event] = callback
+
+    async def set_resampling(self, rate, channels, audio_format):
+        """
+        Set the resampling factors for your end of the connection.
+        Asterisk's end cannot be changed.
+        Use this method to start automatically resampling audio that is written to your end of the connection
+        If not used, audio will be sent as-is, which may not be what asterisk expects
+        :param rate: Audio sample rate at your end of the connection
+        :param channels: Audio channels at your end of the connection
+        :param audio_format: Audio format at your end of the connection
+        :return: None
+        """
+        self._from_asterisk_resample_factor = rate / 8000
+        self._to_asterisk_resample_factor = 8000 / rate
+        # Create the resampler: an ffmpeg process
+        self._from_asterisk_resampler = await asyncio.create_subprocess_exec(
+            'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-fflags', '+flush_packets',
+            '-f', 's16le',
+            '-ar', '8000', # Asterisk end fixed to 8KHz
+            '-ac', '1', # Asterisk end fixed to mono
+            '-i', 'pipe:0',
+            '-f', 's16le',
+            '-ar', str(rate),
+            '-ac', str(channels),
+            'pipe:1',
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE
+        )
+
+        # Create the task to pass audio to the resampler
+        self._rx_resample_task = asyncio.create_task(self._rx_resample_task())
+
+        # Repeat the above process for the other direction
+        self._to_asterisk_resampler = await asyncio.create_subprocess_exec(
+            'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-fflags', '+flush_packets',
+            '-f', 's16le',
+            '-ar', str(rate),
+            '-ac', str(channels),
+            '-i', 'pipe:0',
+            '-f', 's16le',
+            '-ar', '8000', # Asterisk end fixed to 8KHz
+            '-ac', '1', # Asterisk end fixed to mono
+            'pipe:1',
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE
+        )
+
+        # Create the task to pass audio to the resampler
+        self._tx_resample_task = asyncio.create_task(self._tx_resample_task())
 
     async def get_uuid(self):
         while self._uuid is None:
@@ -120,51 +176,84 @@ class AudioSocketConnectionAsync(AsyncClass):
             print('[ASTERISK ERROR] Memory allocation error')
         return
 
-    async def read(self):
+    async def _rx_resample_task(self):
         try:
-            audio = await asyncio.wait_for(self._rx_q.get(), timeout=0.2)
-            if len(audio) != 320:
-                audio += bytes(320 - len(audio))
-        except asyncio.TimeoutError:
-            return bytes(320)
-        if self._asterisk_resample:
-            if self._asterisk_resample.ulaw2lin:
-                audio = audioop.ulaw2lin(audio, 2)
-            if self._asterisk_resample.rate != 8000:
-                audio, self._asterisk_resample.ratecv_state = audioop.ratecv(
-                    audio,
-                    2,
-                    1,
-                    8000,
-                    self._asterisk_resample.rate,
-                    self._asterisk_resample.ratecv_state,
-                )
-            if self._asterisk_resample.channels == 2:
-                audio = audioop.tostereo(audio, 2, 1, 1)
-        return audio
+            logger.debug("AsyncConnection._rx_resample_task")
+            while self.connected and self._from_asterisk_resampler is not None:
+                audio = await self._rx_q.get()
+                self._from_asterisk_resampler.stdin.write(audio)
+                await self._from_asterisk_resampler.stdin.drain()
+            # Close the resampler
+            self._from_asterisk_resampler.stdin.close()
+            code = await self._from_asterisk_resampler.wait()
+            logger.debug(f"AsyncConnection._rx_resample_task: resampler exited with code {code}")
+        except Exception as e:
+            logger.exception(f"AsyncConnection._rx_resample_task exception: {e}")
 
-    async def write(self, audio):
-        logger.debug("AsyncConnection.write")
-        if self._user_resample:
-            if self._user_resample.ulaw2lin:
-                audio = audioop.ulaw2lin(audio, 2)
-            if self._user_resample.rate != 8000:
-                audio, self._user_resample.ratecv_state = audioop.ratecv(
-                    audio,
-                    2,
-                    self._user_resample.channels,
-                    self._user_resample.rate,
-                    8000,
-                    self._user_resample.ratecv_state,
-                )
-            if self._user_resample.channels == 2:
-                audio = audioop.tomono(audio, 2, 1, 1)
+    async def _tx_resample_task(self):
+        try:
+            logger.debug("AsyncConnection._tx_resample_task")
+            while self.connected and self._to_asterisk_resampler is not None:
+                audio = await self._to_asterisk_resampler.stdout.read(320)
+                await self._write_to_tx_queue(audio)
+            # Close the resampler
+            self._to_asterisk_resampler.stdin.close()
+            code = await self._to_asterisk_resampler.wait()
+            logger.debug(f"AsyncConnection._tx_resample_task: resampler exited with code {code}")
+        except Exception as e:
+            logger.exception(f"AsyncConnection._tx_resample_task error: {e}")
+
+    async def _write_to_tx_queue(self, audio):
+        """
+        Write audio to the send queue, chunkify it if it is greater than 320 bytes
+        """
+        # Add the extra data from last time
+        audio = self._tx_extra_data + audio
+        self._tx_extra_data = b''
         # If the audio data is greater than 320 bytes, write it in 320 byte chunks
         if len(audio) > 320:
             for i in range(0, len(audio), 320):
-                await self._tx_q.put(audio[i : i + 320])
+                chunk = audio[i : i + 320]
+                if len(chunk) == 320:
+                    await self._tx_q.put(chunk)
+                elif len(chunk) < 320:
+                    self._tx_extra_data = chunk
+                    break
+                else:
+                    raise ValueError("Audio chunk is greater than 320 bytes")
+        elif len(audio) < 320:
+            self._tx_extra_data = audio
         else:
             await self._tx_q.put(audio)
+
+    async def read(self):
+        """
+        Read audio from the receive queue
+        If the connection is resampled, read from the resampled queue
+        If the connection is not resampled, read from the original queue
+        :return: Audio data
+        """
+        logger.debug("AsyncConnection.read")
+        if self._from_asterisk_resampler:
+            bytes_to_read = int(320 * self._from_asterisk_resample_factor)
+            return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
+        else:
+            return await self._rx_q.get()
+
+    async def write(self, data):
+        """
+        Write audio to the send queue
+        If the connection is resampled, write to the resampled queue
+        If the connection is not resampled, write to the original queue
+        :param data: Audio data
+        :return: None
+        """
+        logger.debug("AsyncConnection.write")
+        if self._to_asterisk_resampler:
+            self._to_asterisk_resampler.stdin.write(data)
+            await self._to_asterisk_resampler.stdin.drain()
+        else:
+            await self._write_to_tx_queue(data)
 
     async def hangup(self):
         logger.debug("AsyncConnection.hangup")
@@ -191,18 +280,16 @@ class AudioSocketConnectionAsync(AsyncClass):
                     if self._rx_q.full():
                         print('[AUDIOSOCKET WARNING] The inbound audio queue is full! This most ' +
                               'likely occurred because the read() method is not being called, dropping oldest frame')
+                        # Get and discard the oldest frame
                         self._rx_q.get_nowait()
                     await self._rx_q.put(payload)
                     if self._tx_q.empty():
                         async with self._lock:
                             await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
                     else:
-                        audio_data = self._tx_extra_data
-                        while len(audio_data) < 320 and not self._tx_q.empty():
-                            audio_data += await self._tx_q.get()
-
+                        audio_data = await self._tx_q.get()
                         if len(audio_data) > 320:
-                            self._tx_extra_data = audio_data[320:]
+                            logger.warning("Audio data is greater than 320 bytes, truncating to 320 bytes")
                             audio_data = audio_data[:320]
 
                         async with self._lock:

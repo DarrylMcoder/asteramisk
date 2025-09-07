@@ -11,3 +11,7 @@ class AriClient:
         if not cls._instance:
             cls._instance = await aioari.connect(f"http://{ari_host}:{ari_port}", ari_user, ari_pass)
         return cls._instance
+
+    @classmethod
+    def is_instantiated(cls):
+        return cls._instance is not None
