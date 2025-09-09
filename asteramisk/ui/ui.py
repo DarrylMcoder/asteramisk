@@ -139,7 +139,7 @@ class UI(AsyncClass):
             return await self.select("That option is not available, please try again", options, voice_options, text_options)
         return local_options[selected]
     
-    async def _run_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
+    async def _run_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None) -> None:
         # Wrap the entire task in a try/except block to catch any exceptions
         try:
             if self.ui_type == self.UIType.TEXT and isinstance(agent, RealtimeAgent):
@@ -151,7 +151,9 @@ class UI(AsyncClass):
                     model = config.DEFAULT_REALTIME_GPT_MODEL
                 runner = RealtimeRunner(starting_agent=agent, config={
                     "model_settings": {
-                        "model_name": model
+                        "model_name": model,
+                        "modalities": ["text", "audio"],
+                        "voice": voice
                     }
                 })
                 async with await runner.run() as session:
@@ -219,7 +221,7 @@ class UI(AsyncClass):
             logger.exception(f"Error in _exchange_media_with_session_task: {e}")
 
 
-    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
+    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None) -> None:
         """
         Connect this UI to an OpenAI agent
         This automates the passing of messages or audio between the UI and the OpenAI agent
@@ -250,4 +252,4 @@ class UI(AsyncClass):
         :param talk_first: If True, the agent will speak first, e.g. answering a phone call
         :return: A task that will run the OpenAI agent. You can await this task to wait for the conversation to end
         """
-        return asyncio.create_task(self._run_openai_agent(agent, talk_first, model))
+        return asyncio.create_task(self._run_openai_agent(agent, talk_first, model, voice))

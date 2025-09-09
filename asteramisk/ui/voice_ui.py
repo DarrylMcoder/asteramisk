@@ -2,8 +2,6 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
-from agents import Agent
-from agents.realtime import RealtimeAgent
 from contextlib import asynccontextmanager, suppress
 
 from .ui import UI
@@ -173,23 +171,6 @@ class VoiceUI(UI):
         self.dtmf_callbacks["5"] = pause_toggle
         self.dtmf_callbacks["6"] = forward
 
-    async def _connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
-        """
-        Connects an OpenAI agent to the voice UI
-        :param agent: The OpenAI agent to connect. This can be either an Agent or a RealtimeAgent. If it's a RealtimeAgent, a realtime session will be started, otherwise we will transcribe the audio ourselves
-        :param talk_first: Whether or not the agent should speak first
-        :param model: The OpenAI model to use
-        """
-        async def _run_agent():
-            if isinstance(agent, RealtimeAgent):
-                await self._run_realtime_agent(agent, talk_first, model)
-            elif isinstance(agent, Agent):
-                await self._run_agent(agent, talk_first, model)
-            else:
-                raise ValueError("agent must be either an Agent or a RealtimeAgent")
-
-
-            
     async def _on_channel_stasis_end(self, objs, event):
         logger.debug("VoiceUI._on_channel_stasis_end")
         logger.info("Caller has hung up")

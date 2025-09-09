@@ -139,7 +139,7 @@ class Communicator(AsyncClass):
         # I tried to use ARI, but couldn't figure out whether the call was successful or not
         # It would be possible to use ARI, but this is easier for now
         try:
-            asteramisk_app = await self._ari_client.applications.get(applicationName="asteramisk")
+            await self._ari_client.applications.get(applicationName="asteramisk")
         except aiohttp.web_exceptions.HTTPNotFound:
             raise asteramisk.exceptions.AsteramiskException("The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.")
         ari_channel = await self._ari_client.channels.get(channelId=channel_id)
