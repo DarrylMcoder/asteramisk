@@ -12,8 +12,9 @@ Each call to a handler will be handled by a separate coroutine.
 
         import asyncio
         from asteramisk.server import Server
+        from asteramisk.ui import VoiceUI, TextUI
 
-        async def my_call_handler(ui):
+        async def my_call_handler(ui: VoiceUI):
             await ui.answer()
             await ui.say('Hello, world!')
             digit = await ui.gather("Please pick a number between 1 and 10", num_digits=1)
@@ -24,7 +25,7 @@ Each call to a handler will be handled by a separate coroutine.
             })
             await ui.hangup()
 
-        async def my_text_handler(ui):
+        async def my_text_handler(ui: TextUI):
             await ui.answer()
             await ui.say('Hello, world!')
             name = await ui.prompt('What is your name?')
@@ -41,10 +42,16 @@ Each call to a handler will be handled by a separate coroutine.
             asyncio.run(main())
 
  Inside your call and text message handlers, you can use the `UI` object to control the call or text conversation.
- Use the `say` method to send text to the caller.
- Use the `play` method to play a sound file to the caller.
  Use the `answer` method to answer the call.
- Use the `hangup` method to hang up the call.
+ Use the `say` method to say something to the caller.
  Use the `gather` method to gather digits from the caller.
- Use the `menu` method to present a menu to the caller and handle the user's choice.
- Use the `prompt` method to prompt the caller for input.
+ Use the `prompt` method to prompt the caller for text input.
+ Use the `menu` method to present a menu to the caller and call a specified callback for the user's choice.
+ Use the `select` method to present a menu to the caller and get the user's choice.
+ Use the `hangup` method to hang up the call.
+
+ The `UI` object also has a `connect_openai_agent` method that allows you to connect your call or text conversation to an OpenAI agent.
+ After calling this method, the conversation is controlled by the OpenAI agent.
+ You can then use tool calling and other features of the OpenAI agent to control the conversation.
+ Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).
+

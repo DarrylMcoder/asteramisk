@@ -144,6 +144,8 @@ class VoiceUI(UI):
         async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
             yield transcript
 
+    ### Voice UI specific methods ###
+
     async def control_say(self, text):
         # Speak text, allowing rewind and fast forward
         filename = await self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
@@ -171,6 +173,8 @@ class VoiceUI(UI):
         self.dtmf_callbacks["5"] = pause_toggle
         self.dtmf_callbacks["6"] = forward
 
+    ### Callbacks ###
+
     async def _on_channel_stasis_end(self, objs, event):
         logger.debug("VoiceUI._on_channel_stasis_end")
         logger.info("Caller has hung up")
@@ -193,17 +197,12 @@ class VoiceUI(UI):
             # Otherwise, put it in the queue to be received as user input
             await self.dtmf_queue.put(digit)
 
-    async def _on_audconn_error(self, error):
-        logger.error(f"VoiceUI._on_audconn_error: {error}")
-        await self.hangup()
+    ### Private methods ###
 
     async def _ensure_answered(self):
         if not self.answered:
             logger.warning("VoiceUI._ensure_answered: Call was not explicitly answered. Answering now...")
             await self.answer()
-
-    async def _get_transcript(self):
-        return await self.transcribe_engine.transcribe_from_stream(self.audconn)
 
     async def _clear_dtmf_queue(self):
         while True:
