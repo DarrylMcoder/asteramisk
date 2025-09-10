@@ -63,6 +63,12 @@ class Config:
     DEFAULT_GPT_MODEL = os.getenv('DEFAULT_GPT_MODEL', 'gpt-4o-mini')
     """ The default model to use for when connecting to the OpenAI API using the UI's connect_openai_agent method. Default is gpt-4o-mini """
 
+    ADMIN_PHONE_NUMBER = os.getenv('ADMIN_PHONE_NUMBER')
+    """ The default phone number for the notifier module to use wnen you send an error message. """
+
+    LOG_DIR = os.getenv('LOG_DIR', '/var/log/asteramisk')
+    """ The directory where asteramisk stores log files. Default is /var/log/asteramisk """
+
     OUTBOUND_CALL_TIMEOUT = os.getenv('OUTBOUND_CALL_TIMEOUT', 30)
     """ The timeout in seconds for outbound calls. Default is 30 seconds. """
 
