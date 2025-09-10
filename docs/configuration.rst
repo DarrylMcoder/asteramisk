@@ -1,6 +1,8 @@
 Configuration
 -------------
 First, you need to configure Asterisk.
+You can find example configuration files in `example_configs/`.
+You should be able to copy the `example_configs` directory contents directly into `/etc/asterisk/`.
 You need to enable the Asterisk ARI interface and the Asterisk AMI interface.
 
 AMI configuration
