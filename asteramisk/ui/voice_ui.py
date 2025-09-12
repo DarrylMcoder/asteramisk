@@ -2,15 +2,18 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import suppress
+from agents import Agent
+from agents.realtime import RealtimeAgent, RealtimeRunner
 
-from .ui import UI
+from asteramisk.config import config
+from asteramisk.ui import UI
+from asteramisk.exceptions import HangupException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
 from asteramisk.internal.audiosocket import AudiosocketAsync
 from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
-from asteramisk.config import config
 
 
 import logging
@@ -54,14 +57,6 @@ class VoiceUI(UI):
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
         await super().__create__()
 
-    @asynccontextmanager
-    async def event_set(self, event: asyncio.Event):
-        event.set()
-        try:
-            yield
-        finally:
-            event.clear()
-
     @property
     def ui_type(self):
         return self.UIType.VOICE
@@ -79,11 +74,23 @@ class VoiceUI(UI):
 
     async def hangup(self):
         logger.debug("VoiceUI.hangup")
-        await self.audconn.hangup()
-        await self.external_media_channel.hangup()
-        await self.channel.hangup()
-        await self.bridge.destroy()
+        await self.audconn.close()
+        await self.tts_engine.close()
+        # Clean up ARI resources
+        with suppress(aiohttp.web_exceptions.HTTPNotFound):
+            await self.external_media_channel.hangup()
+            await self.channel.hangup()
+            await self.bridge.destroy()
         self.out_media_task.cancel()
+        if hasattr(self, "out_media_task") and self.out_media_task is not None:
+            with suppress(asyncio.CancelledError):
+                await self.out_media_task
+            self.out_media_task = None
+        if hasattr(self, "_agent_task") and self._agent_task is not None:
+            self._agent_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._agent_task
+            self._agent_task = None
         self.is_active = False
 
     async def say(self, text) -> None:
@@ -96,6 +103,10 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI.say: {text}")
         # Ensure the call is answered, since we can't hean anything otherwise
         await self._ensure_answered()
+
+        if not self.is_active:
+            raise HangupException("UI is inactive, cannot say(). User probably hung up")
+
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self.text_out_queue.put(text)
 
@@ -108,12 +119,19 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI.prompt: {text}")
         # Ensure the call is answered, since we can't hean anything otherwise
         await self._ensure_answered()
+
+        if not self.is_active:
+            raise HangupException("UI is inactive, cannot prompt(). User probably hung up")
+
         # Wait till the queue is empty
         await self.text_out_queue.join()
         # Also wait till the last item in the queue has finished playing
         await self.audconn.drain_send_queue()
         await self.text_out_queue.put(text)
-        return await self.transcribe_engine.transcribe_from_stream(self.audconn)
+        transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn)
+        # Immediately stop audio playback when we get the transcription
+        await self.audconn.clear_send_queue()
+        return transcription
 
     async def gather(self, text, num_digits) -> str:
         """
@@ -122,6 +140,8 @@ class VoiceUI(UI):
         :return: The user's input
         """
         await self._ensure_answered()
+        if not self.is_active:
+            raise HangupException("UI is inactive, cannot gather(). User probably hung up")
         await self.text_out_queue.join()
         await self.audconn.drain_send_queue()
         await self.text_out_queue.put(text)
@@ -142,7 +162,98 @@ class VoiceUI(UI):
         Returns an async generator that yields transcriptions as they come
         """
         async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
+            # Immediately stop audio playback when we get a new transcription
+            await self.audconn.clear_send_queue()
             yield transcript
+
+    async def connect_openai_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None):
+        """
+        Connects the voice UI to an OpenAI agent
+        Example usage:
+        .. code-block:: python
+            from asteramisk.ui import VoiceUI
+            from asteramisk.server import Server
+
+            async def call_handler(ui: VoiceUI):
+                await ui.answer()
+                await ui.say("Passing control to OpenAI agent")
+                bob = RealtimeAgent(
+                    name="Bob",
+                    instructions="Your agent instructions"
+                )
+                await ui.connect_openai_agent(bob, model="gpt-4o-realtime-preview", voice="Cedar")
+                # Control of the conversation is now passed to the OpenAI agent
+                # You can use OpenAI's tool calling to manage your conversation flow
+                # You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio
+
+        :param agent: The OpenAI agent to connect to, either an agents.Agent or agents.realtime.RealtimeAgent
+        :param talk_first: Whether or not the agent should speak first
+        :param model: The OpenAI model to use
+        :param voice: The OpenAI realtime voice to use. Only has an effect if agent is an agents.realtime.RealtimeAgent
+        :return: A task that will run the OpenAI agent. You can await this task to wait for the agent to finish
+        """
+        async def _run_agent_task():
+            nonlocal model # We might change the model so we need to declare it a nonlocal
+            if isinstance(agent, Agent):
+                await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
+            elif isinstance(agent, RealtimeAgent):
+                await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
+                if model is None:
+                    # Use the cheaper mini model rather than the default GPT-4o
+                    model = config.DEFAULT_REALTIME_GPT_MODEL
+                runner = RealtimeRunner(starting_agent=agent, config={
+                    "model_settings": {
+                        "model_name": model,
+                        "modalities": ["text", "audio"],
+                        "voice": voice
+                    }
+                })
+                async with await runner.run() as session:
+                    if talk_first:
+                        # The agent is expected to speak first. E.g. answering a phone call
+                        await session.send_message("New call, greet the caller.")
+                    async def dtmf_event_handler(objs, event):
+                        await session.send_message(event['digit'])
+                    self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
+                    async def audio_loop():
+                        # Directly pass audio from the UI to the OpenAI session
+                        while self.is_active:
+                            logger.debug("audio_loop: Waiting for audio")
+                            audio = await self.audconn.read()
+                            await session.send_audio(audio)
+                    asyncio.create_task(audio_loop())
+                    async for event in session:
+                        print(event.type)
+                        if event.type == "audio":
+                            audio = event.audio.data
+                            logger.debug("audio_out: Got audio")
+                            await self.audconn.write(audio)
+                            logger.debug("audio_out: Wrote audio")
+                        elif event.type == "audio_interrupted":
+                            # Audio was interrupted, stop speaking and listen
+                            await self.audconn.clear_send_queue()
+                        elif event.type == "raw_model_event":
+                            print(" ", event.data.type)
+                            if event.data.type == "raw_server_event":
+                                print("     ", event.data.data["type"])
+                                if event.data.data["type"].count("rate") > 0:
+                                    print("         ", event)
+                        elif event.type == "error":
+                            logger.error(f"OpenAI session error: {event}")
+            else:
+                raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
+
+        self._agent_task = asyncio.create_task(_run_agent_task())
+        return self._agent_task
+
+    async def disconnect_openai_agent(self):
+        await self.audconn.drain_send_queue()
+        await self.audconn.stop_resampling()
+        if self._agent_task:
+            self._agent_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._agent_task
+            self._agent_task = None
 
     ### Voice UI specific methods ###
 
@@ -177,15 +288,9 @@ class VoiceUI(UI):
 
     async def _on_channel_stasis_end(self, objs, event):
         logger.debug("VoiceUI._on_channel_stasis_end")
-        logger.info("Caller has hung up")
-        await self.audconn.hangup()
-        await asyncio.sleep(0.1)
-        await self.audconn.close()
-        with suppress(aiohttp.web_exceptions.HTTPNotFound):
-            await self.external_media_channel.hangup()
-        await self.bridge.destroy()
-        self.out_media_task.cancel()
-        self.is_active = False
+        logger.info("Caller has hung up, so we are also hanging up")
+        # The call has ended, clean up
+        await self.hangup()
 
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
@@ -230,15 +335,12 @@ class VoiceUI(UI):
         return digits
 
     async def _out_media_exchanger(self):
-        try:
-            logger.debug("VoiceUI._out_media_exchanger")
-            while True:
-                text = await self.text_out_queue.get()
-                audio = await self.tts_engine.tts(text=text, voice=self.voice)
-                # Wait for the previous audio to finish playing, so that we don't get way out of sync
-                await self.audconn.drain_send_queue()
-                await self.audconn.write(audio)
-                self.text_out_queue.task_done()
-        except Exception as e:
-            logger.exception(f"VoiceUI._out_media_exchanger: {e}")
+        logger.debug("VoiceUI._out_media_exchanger")
+        while True:
+            text = await self.text_out_queue.get()
+            audio = await self.tts_engine.tts(text=text, voice=self.voice)
+            # Wait for the previous audio to finish playing, so that we don't get way out of sync
+            await self.audconn.drain_send_queue()
+            await self.audconn.write(audio)
+            self.text_out_queue.task_done()
 

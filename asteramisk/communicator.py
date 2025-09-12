@@ -70,9 +70,6 @@ class Communicator(AsyncClass):
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.close()
 
-    async def send_AMI_action(self, action):
-        await self._manager.send_action(action)
-
     async def make_call(self,
                         recipient_number=None,
                         channel=None,

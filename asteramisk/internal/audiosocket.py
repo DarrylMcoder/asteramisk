@@ -1,8 +1,10 @@
 import socket
 import asyncio
-from .audiosocket_connection import AudioSocketConnectionAsync
-from asteramisk.internal.async_singleton import AsyncSingleton
+from contextlib import suppress
+
 from asteramisk.config import config
+from asteramisk.internal.async_singleton import AsyncSingleton
+from .audiosocket_connection import AudioSocketConnectionAsync
 
 import logging
 logger = logging.getLogger(__name__)
@@ -10,10 +12,6 @@ logger = logging.getLogger(__name__)
 class AudiosocketAsync(AsyncSingleton):
     async def __create__(self, bind_addr=config.AUDIOSOCKET_BINDADDR, bind_port=config.AUDIOSOCKET_PORT, timeout=None):
         logger.debug("AsyncAudiosocket.__create__")
-        # By default, features of audioop (for example: resampling
-        # or re-mixng input/output) are disabled
-        self.user_resample = None
-        self.asterisk_resample = None
         self.connections = {}
 
         if not bind_addr:
@@ -34,19 +32,16 @@ class AudiosocketAsync(AsyncSingleton):
         # If the user doesn't specify a port, we use the one we got
         self.port = self.initial_sock.getsockname()[1]
         # Start the listening loop
-        asyncio.create_task(self._listen_loop())
+        self._listen_task = asyncio.create_task(self._listen_loop())
 
     async def _listen_loop(self):
-        try:
-            logger.debug("AsyncAudiosocket._listen_loop")
-            while True:
-                audconn = await self.listen()
-                logger.debug("AsyncAudiosocket._listen_loop: audconn created")
-                stream_id = await audconn.get_uuid()
-                self.connections[stream_id] = audconn
-                logger.debug(f"AsyncAudiosocket._listen_loop: added connection {stream_id}")
-        except Exception as e:
-            logger.error(f"AsyncAudiosocket._listen_loop error: {e}")
+        logger.debug("AsyncAudiosocket._listen_loop")
+        while True:
+            audconn = await self.listen()
+            logger.debug("AsyncAudiosocket._listen_loop: audconn created")
+            stream_id = await audconn.get_uuid()
+            self.connections[stream_id] = audconn
+            logger.debug(f"AsyncAudiosocket._listen_loop: added connection {stream_id}")
 
     async def accept(self, stream_id):
         logger.debug(f"AsyncAudiosocket.accept: waiting for connection {stream_id}")
@@ -68,4 +63,9 @@ class AudiosocketAsync(AsyncSingleton):
         return connection
 
     async def close(self):
+        if self._listen_task:
+            self._listen_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._listen_task
+            self._listen_task = None
         self.initial_sock.close()

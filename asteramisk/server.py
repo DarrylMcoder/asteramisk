@@ -17,11 +17,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Server(AsyncClass):
+    """
+    The main server class
+    Create an instance of this class to receive calls and messages
+    Example:
+    .. code-block:: python
+
+        from asteramisk import Server
+
+        async def call_handler(ui: VoiceUI):
+            await ui.say("Hello, world!")
+
+        async def message_handler(ui: TextUI):
+            await ui.say("Hello, world!")
+
+        server = await Server.create()
+        await server.register_extension("1234", call_handler=call_handler, message_handler=message_handler)
+        await server.serve_forever()
+    """
     async def __create__(self, stasis_app=None):
         self.host = config.AGI_SERVER_HOST
         self.bindaddr = config.AGI_SERVER_BINDADDR
         self.port = config.AGI_SERVER_PORT
-        self.audiosocket = await AudiosocketAsync.create()
+        self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
                 ari_port=config.ASTERISK_ARI_PORT,
@@ -37,6 +55,7 @@ class Server(AsyncClass):
     async def register_extension(self, extension, call_handler=None, message_handler=None):
         """
         Registers a phone number with asterisk.
+        Is an async method
 
         :param extension: The phone number to register
         :param call_handler: The function to call when the phone number is called. Must be a coroutine. Will be passed an instance of asteramisk.ui.VoiceUI
@@ -61,6 +80,10 @@ class Server(AsyncClass):
         await self._register_extension(extension, 'text')
 
     async def _register_extension(self, extension, extension_type):
+        """
+        Internally called to register an extension
+        Not a public API function
+        """
         manager = panoramisk.manager.Manager(
                 host=config.ASTERISK_HOST,
                 port=config.ASTERISK_AMI_PORT,
@@ -84,18 +107,30 @@ class Server(AsyncClass):
         manager.close()
 
     async def serve_forever(self):
+        """
+        Runs the server. Is an async method
+        """
         # Error if not running as root
         if not os.geteuid() == 0:
             raise Exception("Must be run as root")
         self.ari.on_channel_event("StasisStart", self._ari_stasis_start_handler)
-        await asyncio.gather(
-                self.ari.run(
-                        apps=[
-                            self.stasis_app,
-                            "asteramisk"
-                        ]
-                    )
-        )
+        try:
+            await self.ari.run(
+                apps=[
+                    self.stasis_app,
+                    "asteramisk"
+                ]
+            )
+        finally:
+            await self.audiosocket.close()
+            await self.ari.close()
+
+    async def close(self):
+        """
+        Close the server. Is an async method
+        """
+        await self.audiosocket.close()
+        await self.ari.close()
 
     async def _ari_stasis_start_handler(self, objs, event):
         if event['application'] == self.stasis_app:
@@ -104,6 +139,11 @@ class Server(AsyncClass):
             logger.debug(f"Application {event['application']} has no handler. Probably ok if the code that created it is also controlling it")
 
     async def _main_handler(self, objs, event):
+        """
+        Internally called when a call or message is received.
+        This is registered as the callback for StasisStart events.
+        Not a public API function
+        """
         channel = objs['channel']
         extension_type = event['args'][0]
         if extension_type == 'call':
@@ -113,9 +153,10 @@ class Server(AsyncClass):
 
     async def _call_request_handler(self, channel: aioari.model.Channel):
         """
-        Called when an call is received.
+        Internally called when a call is received.
         This is registered as the callback for call requests.
         Once per call.
+        Not a public API function
         """
         ui = await VoiceUI.create(channel)
         extension = (await channel.getChannelVar(variable="EXTEN"))['value']
@@ -124,9 +165,10 @@ class Server(AsyncClass):
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
         """
-        Called when a message is received.
+        Internally called when a message is received.
         This is registered as the callback for message requests.
         Once per message.
+        Not a public API function
         """
         phone_number = (await channel.getChannelVar(variable="MESSAGE(from)"))['value']
         message = (await channel.getChannelVar(variable="MESSAGE(body)"))['value']
@@ -141,19 +183,3 @@ class Server(AsyncClass):
             ui = await TextUI.create(phone_number)
             _, message_handler = self.handlers[extension]
             await message_handler(ui)
-
-    async def call_handler(self, ui: VoiceUI):
-        """
-        Called when a call is received.
-        Override this to handle the call.
-        :param ui: asteramisk.ui.VoiceUI A UI that can be used to control the call.
-        """
-        raise NotImplementedError
-
-    async def message_handler(self, ui: TextUI):
-        """
-        Called when a new messaging conversation is started.
-        Override this to handle the message.
-        :param ui: asteramisk.ui.TextUI A UI that can be used to control the conversation.
-        """
-        raise NotImplementedError
