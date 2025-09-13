@@ -2,6 +2,7 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
+import websockets
 from contextlib import suppress
 from agents import Agent
 from agents.realtime import RealtimeAgent, RealtimeRunner
@@ -74,15 +75,8 @@ class VoiceUI(UI):
 
     async def hangup(self):
         logger.debug("VoiceUI.hangup")
-        await self.audconn.close()
-        await self.tts_engine.close()
-        # Clean up ARI resources
-        with suppress(aiohttp.web_exceptions.HTTPNotFound):
-            await self.external_media_channel.hangup()
-            await self.channel.hangup()
-            await self.bridge.destroy()
-        self.out_media_task.cancel()
         if hasattr(self, "out_media_task") and self.out_media_task is not None:
+            self.out_media_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self.out_media_task
             self.out_media_task = None
@@ -91,6 +85,21 @@ class VoiceUI(UI):
             with suppress(asyncio.CancelledError):
                 await self._agent_task
             self._agent_task = None
+        if hasattr(self, "_audio_task") and self._audio_task is not None:
+            self._audio_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._audio_task
+            self._audio_task = None
+
+        await self.audconn.close()
+        await self.tts_engine.close()
+        # Clean up ARI resources
+        with suppress(aiohttp.web_exceptions.HTTPNotFound):
+            await self.bridge.destroy()
+        with suppress(aiohttp.web_exceptions.HTTPNotFound):
+            await self.external_media_channel.hangup()
+        with suppress(aiohttp.web_exceptions.HTTPNotFound):
+            await self.channel.hangup()
         self.is_active = False
 
     async def say(self, text) -> None:
@@ -101,7 +110,7 @@ class VoiceUI(UI):
         :raise: GotoMainException: if the user presses #
         """
         logger.debug(f"VoiceUI.say: {text}")
-        # Ensure the call is answered, since we can't hean anything otherwise
+        # Ensure the call is answered, since we can't hear anything otherwise
         await self._ensure_answered()
 
         if not self.is_active:
@@ -117,7 +126,7 @@ class VoiceUI(UI):
         :return: The user's input
         """
         logger.debug(f"VoiceUI.prompt: {text}")
-        # Ensure the call is answered, since we can't hean anything otherwise
+        # Ensure the call is answered, since we can't hear anything otherwise
         await self._ensure_answered()
 
         if not self.is_active:
@@ -193,6 +202,7 @@ class VoiceUI(UI):
         :return: A task that will run the OpenAI agent. You can await this task to wait for the agent to finish
         """
         async def _run_agent_task():
+            logger.debug("VoiceUI.connect_openai_agent._run_agent_task")
             nonlocal model # We might change the model so we need to declare it a nonlocal
             if isinstance(agent, Agent):
                 await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
@@ -211,33 +221,35 @@ class VoiceUI(UI):
                 async with await runner.run() as session:
                     if talk_first:
                         # The agent is expected to speak first. E.g. answering a phone call
-                        await session.send_message("New call, greet the caller.")
+                        with suppress(websockets.exceptions.ConnectionClosed):
+                            # Clean up should be handled elsewhere so just swallow the exception
+                            await session.send_message("New call, greet the caller.")
                     async def dtmf_event_handler(objs, event):
-                        await session.send_message(event['digit'])
+                        with suppress(websockets.exceptions.ConnectionClosed):
+                            await session.send_message(event['digit'])
                     self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
                     async def audio_loop():
                         # Directly pass audio from the UI to the OpenAI session
                         while self.is_active:
                             logger.debug("audio_loop: Waiting for audio")
                             audio = await self.audconn.read()
-                            await session.send_audio(audio)
-                    asyncio.create_task(audio_loop())
+                            try:
+                                await session.send_audio(audio)
+                            except websockets.exceptions.ConnectionClosed:
+                                break
+                    self._audio_task = asyncio.create_task(audio_loop())
                     async for event in session:
-                        print(event.type)
+                        logger.debug(event.type)
                         if event.type == "audio":
                             audio = event.audio.data
-                            logger.debug("audio_out: Got audio")
                             await self.audconn.write(audio)
-                            logger.debug("audio_out: Wrote audio")
                         elif event.type == "audio_interrupted":
                             # Audio was interrupted, stop speaking and listen
                             await self.audconn.clear_send_queue()
                         elif event.type == "raw_model_event":
-                            print(" ", event.data.type)
+                            logger.debug(f"  {event.data.type}")
                             if event.data.type == "raw_server_event":
-                                print("     ", event.data.data["type"])
-                                if event.data.data["type"].count("rate") > 0:
-                                    print("         ", event)
+                                logger.debug(f"     {event.data.data['type']}")
                         elif event.type == "error":
                             logger.error(f"OpenAI session error: {event}")
             else:
@@ -247,9 +259,19 @@ class VoiceUI(UI):
         return self._agent_task
 
     async def disconnect_openai_agent(self):
+        """
+        Disconnects the voice UI from any currently connected OpenAI agent.
+        Currently quite buggy so use with caution.
+        Once connected, agents generally run until the conversation ends.
+        """
         await self.audconn.drain_send_queue()
         await self.audconn.stop_resampling()
-        if self._agent_task:
+        if hasattr(self, "_audio_task") and self._audio_task is not None:
+            self._audio_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._audio_task
+            self._audio_task = None
+        if hasattr(self, "_agent_task") and self._agent_task is not None:
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._agent_task
@@ -258,9 +280,15 @@ class VoiceUI(UI):
     ### Voice UI specific methods ###
 
     async def control_say(self, text):
+        # Wait till all audio has finished playing
+        await self.audconn.drain_send_queue()
         # Speak text, allowing rewind and fast forward
         filename = await self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
-        playback = await self.channel.play(media="sound:%s" % filename)
+        try:
+            playback = await self.channel.play(media=f"sound:{filename}")
+        except aiohttp.web_exceptions.HTTPNotFound as e:
+            logger.error(f"Failed to play {filename}. Channel may have been destroyed")
+            raise HangupException("Failed to play audio. Channel may have been destroyed") from e
         paused = False
         async def pause_toggle():
             nonlocal paused

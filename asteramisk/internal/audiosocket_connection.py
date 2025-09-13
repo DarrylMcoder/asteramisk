@@ -53,6 +53,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         self.peer_addr = peer_addr
         self._uuid = None
         self.connected = True
+        self.is_closing = False
         self._rx_q = asyncio.Queue(500)
         self._tx_q = asyncio.Queue(500)
         self._from_asterisk_resample_factor = 1
@@ -61,6 +62,8 @@ class AudioSocketConnectionAsync(AsyncClass):
         self._to_asterisk_resampler = None
         self._tx_extra_data = b''
         self._lock = asyncio.Lock()
+        self._to_asterisk_resampler_lock = asyncio.Lock()
+        self._from_asterisk_resampler_lock = asyncio.Lock()
         self._event_callbacks = {}
         self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._process())
@@ -128,14 +131,9 @@ class AudioSocketConnectionAsync(AsyncClass):
         self._tx_resample_task = asyncio.create_task(self._tx_resample())
 
     async def stop_resampling(self):
-        if hasattr(self, '_from_asterisk_resampler') and self._from_asterisk_resampler is not None:
-            self._from_asterisk_resampler.stdin.close()
-            await self._from_asterisk_resampler.wait()
-            self._from_asterisk_resampler = None
-        if hasattr(self, '_to_asterisk_resampler') and self._to_asterisk_resampler is not None:
-            self._to_asterisk_resampler.stdin.close()
-            await self._to_asterisk_resampler.wait()
-            self._to_asterisk_resampler = None
+        logger.debug("AsyncConnection.stop_resampling")
+
+        logger.debug("AsyncConnection.stop_resampling: closing resample tasks")
         if hasattr(self, '_rx_resample_task') and self._rx_resample_task is not None:
             self._rx_resample_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -146,6 +144,37 @@ class AudioSocketConnectionAsync(AsyncClass):
             with suppress(asyncio.CancelledError):
                 await self._tx_resample_task
             self._tx_resample_task = None
+
+        async def stop_process(process: asyncio.subprocess.Process):
+            logger.debug("AsyncConnection.stop_resampling: closing stdin")
+            process.stdin.close()
+            logger.debug("AsyncConnection.stop_resampling: waiting for stdin to close")
+            await process.stdin.wait_closed()
+            if process.returncode is None:
+                # Try a graceful shutdown
+                logger.debug("AsyncConnection.stop_resampling: reading to end of stdout")
+                _ = await process.stdout.read()
+                logger.debug("AsyncConnection.stop_resampling: terminating process")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    # If the process is still running, kill it
+                    logger.debug("AsyncConnection.stop_resampling: process is still running, killing process")
+                    process.kill()
+                    logger.debug("AsyncConnection.stop_resampling: waiting for process to exit")
+                    await process.wait()
+        logger.debug("AsyncConnection.stop_resampling: closing from_asterisk_resampler process")
+        async with self._from_asterisk_resampler_lock:
+            if hasattr(self, '_from_asterisk_resampler') and self._from_asterisk_resampler is not None:
+                await stop_process(self._from_asterisk_resampler)
+                self._from_asterisk_resampler = None
+        logger.debug("AsyncConnection.stop_resampling: closing to_asterisk_resampler process")
+        async with self._to_asterisk_resampler_lock:
+            if hasattr(self, '_to_asterisk_resampler') and self._to_asterisk_resampler is not None:
+                await stop_process(self._to_asterisk_resampler)
+                self._to_asterisk_resampler = None
+        logger.debug("AsyncConnection.stop_resampling: done")
 
     async def get_uuid(self):
         while self._uuid is None:
@@ -180,6 +209,7 @@ class AudioSocketConnectionAsync(AsyncClass):
     async def drain_send_queue(self):
         logger.debug("AsyncConnection.drain_send_queue")
         await self._tx_q.join()
+        logger.debug("AsyncConnection.drain_send_queue: done")
 
     def _split_data(self, data):
         if len(data) < 3:
@@ -191,13 +221,13 @@ class AudioSocketConnectionAsync(AsyncClass):
 
     def _decode_error(self, payload):
         if payload == errors.none:
-            print('[ASTERISK ERROR] No error code present')
+            logger.error('[ASTERISK ERROR] No error code present')
         elif payload == errors.hangup:
-            print('[ASTERISK ERROR] The called party hungup')
+            logger.error('[ASTERISK ERROR] The called party hungup')
         elif payload == errors.frame:
-            print('[ASTERISK ERROR] Failed to forward frame')
+            logger.error('[ASTERISK ERROR] Failed to forward frame')
         elif payload == errors.memory:
-            print('[ASTERISK ERROR] Memory allocation error')
+            logger.error('[ASTERISK ERROR] Memory allocation error')
         return
 
     async def _rx_resample(self):
@@ -207,20 +237,12 @@ class AudioSocketConnectionAsync(AsyncClass):
             self._from_asterisk_resampler.stdin.write(audio)
             await self._from_asterisk_resampler.stdin.drain()
             self._rx_q.task_done()
-        # Close the resampler
-        self._from_asterisk_resampler.stdin.close()
-        code = await self._from_asterisk_resampler.wait()
-        logger.debug(f"AsyncConnection._rx_resample_task: resampler exited with code {code}")
 
     async def _tx_resample(self):
         logger.debug("AsyncConnection._tx_resample_task")
         while self.connected and self._to_asterisk_resampler is not None:
             audio = await self._to_asterisk_resampler.stdout.read(320)
             await self._write_to_tx_queue(audio)
-        # Close the resampler
-        self._to_asterisk_resampler.stdin.close()
-        code = await self._to_asterisk_resampler.wait()
-        logger.debug(f"AsyncConnection._tx_resample_task: resampler exited with code {code}")
 
     async def _write_to_tx_queue(self, audio):
         """
@@ -256,8 +278,9 @@ class AudioSocketConnectionAsync(AsyncClass):
         if not self.connected:
             raise InvalidStateException("Unable to read audio. Connection is not connected")
         if self._from_asterisk_resampler:
-            bytes_to_read = int(320 * self._from_asterisk_resample_factor)
-            return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
+            async with self._from_asterisk_resampler_lock:
+                bytes_to_read = int(320 * self._from_asterisk_resample_factor)
+                return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
         else:
             audio = await self._rx_q.get()
             self._rx_q.task_done()
@@ -275,84 +298,100 @@ class AudioSocketConnectionAsync(AsyncClass):
         if not self.connected:
             raise InvalidStateException("Unable to write audio. Connection is not connected")
         if self._to_asterisk_resampler:
-            self._to_asterisk_resampler.stdin.write(data)
-            await self._to_asterisk_resampler.stdin.drain()
+            async with self._to_asterisk_resampler_lock:
+                self._to_asterisk_resampler.stdin.write(data)
+                await self._to_asterisk_resampler.stdin.drain()
         else:
             await self._write_to_tx_queue(data)
 
     async def hangup(self):
+        """
+        Send a hangup command to asterisk
+        This absolutely MUST be called before closing the connection
+        If you don't, asterisk will for some reason never hangup the AudioSocket channel and will go into some weird state, consuming 100% CPU.
+        This method is automatically called in the close() method
+        :return: None
+        """
         logger.debug("AsyncConnection.hangup")
+        if hasattr(self, 'hangup_sent') and self.hangup_sent:
+            return
         async with self._lock:
             await self._loop.sock_sendall(self.conn, types.hangup * 3)
-        await asyncio.sleep(0.2)
-        await self.close()
+            self.hangup_sent = True
 
     async def _process(self):
         logger.debug("AsyncConnection._process")
-        try:
-            while self.connected:
-                data = None
-                try:
-                    data = await self._loop.sock_recv(self.conn, 323)
-                except (ConnectionResetError, asyncio.TimeoutError):
-                    pass
-                if not data:
-                    self.connected = False
-                    await self.close()
-                    break
-                type_byte, length, payload = self._split_data(data)
-                if type_byte == types.audio:
-                    if self._rx_q.full():
-                        print('[AUDIOSOCKET WARNING] The inbound audio queue is full! This most ' +
-                              'likely occurred because the read() method is not being called, dropping oldest frame')
-                        # Get and discard the oldest frame
-                        self._rx_q.get_nowait()
-                        self._rx_q.task_done()
-                    await self._rx_q.put(payload)
-                    if self._tx_q.empty():
-                        async with self._lock:
-                            await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
-                    else:
-                        audio_data = await self._tx_q.get()
-                        if len(audio_data) > 320:
-                            logger.warning("Audio data is greater than 320 bytes, truncating to 320 bytes")
-                            audio_data = audio_data[:320]
+        while self.connected:
+            data = None
+            try:
+                data = await self._loop.sock_recv(self.conn, 323)
+            except (ConnectionResetError, asyncio.TimeoutError):
+                pass
+            if not data:
+                await self.close()
+                break
+            type_byte, length, payload = self._split_data(data)
+            if type_byte == types.audio:
+                if self._rx_q.full():
+                    print('[AUDIOSOCKET WARNING] The inbound audio queue is full! This most ' +
+                          'likely occurred because the read() method is not being called, dropping oldest frame')
+                    # Get and discard the oldest frame
+                    self._rx_q.get_nowait()
+                    self._rx_q.task_done()
+                await self._rx_q.put(payload)
+                if self._tx_q.empty():
+                    async with self._lock:
+                        await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
+                else:
+                    audio_data = await self._tx_q.get()
+                    if len(audio_data) > 320:
+                        logger.warning("Audio data is greater than 320 bytes, truncating to 320 bytes")
+                        audio_data = audio_data[:320]
 
-                        async with self._lock:
-                            await self._loop.sock_sendall(self.conn, types.audio + len(audio_data).to_bytes(2, 'big') + audio_data)
-                        self._tx_q.task_done()
-                elif type_byte == types.dtmf:
-                    logger.debug(f"AsyncConnection._process DTMF: {payload}")
-                    if 'dtmf' in self._event_callbacks:
-                        asyncio.create_task(self._event_callbacks['dtmf'](payload))
-                elif type_byte == types.error:
-                    logger.debug(f"AsyncConnection._process ERROR: {payload}")
-                    if 'error' in self._event_callbacks:
-                        asyncio.create_task(self._event_callbacks['error'](payload))
-                    self._decode_error(payload)
-                elif type_byte == types.uuid:
-                    logger.debug(f"AsyncConnection._process UUID: {payload}")
-                    if 'uuid' in self._event_callbacks:
-                        asyncio.create_task(self._event_callbacks['uuid'](payload))
-                    self._uuid = str(uuid.UUID(bytes=payload))
-        except Exception as e:
-            logger.exception(f"AsyncConnection._process error: {e}")
-        finally:
-            await self.close()
+                    async with self._lock:
+                        await self._loop.sock_sendall(self.conn, types.audio + len(audio_data).to_bytes(2, 'big') + audio_data)
+                    self._tx_q.task_done()
+            elif type_byte == types.dtmf:
+                logger.debug(f"AsyncConnection._process DTMF: {payload}")
+                if 'dtmf' in self._event_callbacks:
+                    asyncio.create_task(self._event_callbacks['dtmf'](payload))
+            elif type_byte == types.error:
+                logger.debug(f"AsyncConnection._process ERROR: {payload}")
+                if 'error' in self._event_callbacks:
+                    asyncio.create_task(self._event_callbacks['error'](payload))
+                self._decode_error(payload)
+            elif type_byte == types.uuid:
+                logger.debug(f"AsyncConnection._process UUID: {payload}")
+                if 'uuid' in self._event_callbacks:
+                    asyncio.create_task(self._event_callbacks['uuid'](payload))
+                self._uuid = str(uuid.UUID(bytes=payload))
 
     async def close(self):
         """
         Drain the send queue, stop resampling, send hangup, and close the connection
         :return: None
         """
+        # Make this idempotent
+        if self.is_closing:
+            return
+        self.is_closing = True
+        logger.debug("AsyncConnection.close")
         # Wait for the send queue to drain
-        await self.drain_send_queue()
+        logger.debug("AsyncConnection.close: draining send queue")
+        try:
+            # Try to drain the send queue, for cases where we initiate the close and the audio is still being sent
+            # But don't wait too long as this will block indefinitely if the connection is dead
+            await asyncio.wait_for(self.drain_send_queue(), timeout=5)
+        except asyncio.TimeoutError:
+            pass
         # Stop resampling if it is running
+        logger.debug("AsyncConnection.close: stopping resampling")
         await self.stop_resampling()
         # Send hangup
+        logger.debug("AsyncConnection.close: sending hangup")
         await self.hangup()
         # Wait for the hangup to be sent
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
         # Close the connection
         if hasattr(self, 'conn') and self.conn is not None:
             self.conn.close()
@@ -364,5 +403,7 @@ class AudioSocketConnectionAsync(AsyncClass):
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        self.connected = False
+        logger.debug("AsyncConnection.close: done")
 
 
