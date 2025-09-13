@@ -41,17 +41,16 @@ Each call to a handler will be handled by a separate coroutine.
         if __name__ == '__main__':
             asyncio.run(main())
 
- Inside your call and text message handlers, you can use the ``UI`` object to control the call or text conversation.
- Use the ``answer`` method to answer the call.
- Use the ``say`` method to say something to the caller.
- Use the ``gather`` method to gather digits from the caller.
- Use the ``prompt`` method to prompt the caller for text input.
- Use the ``menu`` method to present a menu to the caller and call a specified callback for the user's choice.
- Use the ``select`` method to present a menu to the caller and get the user's choice.
- Use the ``hangup`` method to hang up the call.
+Inside your call and text message handlers, you can use the ``UI`` object to control the call or text conversation.
+Use the ``answer`` method to answer the call.
+Use the ``say`` method to say something to the caller.
+Use the ``gather`` method to gather digits from the caller.
+Use the ``prompt`` method to prompt the caller for text input.
+Use the ``menu`` method to present a menu to the caller and call a specified callback for the user's choice.
+Use the ``select`` method to present a menu to the caller and get the user's choice.
+Use the ``hangup`` method to hang up the call.
 
- The ``UI`` object also has a ``connect_openai_agent`` method that allows you to connect your call or text conversation to an OpenAI agent.
- After calling this method, the conversation is controlled by the OpenAI agent.
- You can then use tool calling and other features of the OpenAI agent to control the conversation.
- Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).
-
+The ``UI`` object also has a ``connect_openai_agent`` method that allows you to connect your call or text conversation to an OpenAI agent.
+After calling this method, the conversation is controlled by the OpenAI agent.
+You can then use tool calling and other features of the OpenAI agent to control the conversation.
+Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).
