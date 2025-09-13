@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>asteramisk.server &#8212; Asteramisk 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=f281be69"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for asteramisk.server</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aioari</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.fast_agi</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.actions</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.manager</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">VoiceUI</span><span class="p">,</span> <span class="n">TextUI</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.message_broker</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageBroker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.async_class</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncClass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.ari_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">AriClient</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.audiosocket</span><span class="w"> </span><span class="kn">import</span> <span class="n">AudiosocketAsync</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Server">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Server</span><span class="p">(</span><span class="n">AsyncClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The main server class</span>
+<span class="sd">    Create an instance of this class to receive calls and messages</span>
+<span class="sd">    Example:</span>
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        from asteramisk import Server</span>
+
+<span class="sd">        async def call_handler(ui: VoiceUI):</span>
+<span class="sd">            await ui.say(&quot;Hello, world!&quot;)</span>
+
+<span class="sd">        async def message_handler(ui: TextUI):</span>
+<span class="sd">            await ui.say(&quot;Hello, world!&quot;)</span>
+
+<span class="sd">        server = await Server.create()</span>
+<span class="sd">        await server.register_extension(&quot;1234&quot;, call_handler=call_handler, message_handler=message_handler)</span>
+<span class="sd">        await server.serve_forever()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stasis_app</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_HOST</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bindaddr</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_BINDADDR</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_PORT</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="p">:</span> <span class="n">AudiosocketAsync</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AudiosocketAsync</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">Client</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+                <span class="n">ari_host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
+                <span class="n">ari_port</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PORT</span><span class="p">,</span>
+                <span class="n">ari_user</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_USER</span><span class="p">,</span>
+                <span class="n">ari_pass</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PASS</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">stasis_app</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
+            <span class="c1"># Unique ID for Stasis application so that there are no conflicts with multiple instances</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span>
+
+<div class="viewcode-block" id="Server.register_extension">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.register_extension">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">register_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extension</span><span class="p">,</span> <span class="n">call_handler</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">message_handler</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Registers a phone number with asterisk.</span>
+<span class="sd">        Is an async method</span>
+
+<span class="sd">        :param extension: The phone number to register</span>
+<span class="sd">        :param call_handler: The function to call when the phone number is called. Must be a coroutine. Will be passed an instance of asteramisk.ui.VoiceUI</span>
+<span class="sd">        :param message_handler: The function to call when a message is sent to the phone number. Must be a coroutine. Will be passed an instance of asteramisk.ui.TextUI</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">extension</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> is already registered&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">call_handler</span><span class="p">:</span>
+            <span class="n">call_handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call_handler</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">message_handler</span><span class="p">:</span>
+            <span class="n">message_handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">message_handler</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">iscoroutinefunction</span><span class="p">(</span><span class="n">call_handler</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;call_handler must be a coroutine&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">iscoroutinefunction</span><span class="p">(</span><span class="n">message_handler</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;message_handler must be a coroutine&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">call_handler</span><span class="p">,</span> <span class="n">message_handler</span><span class="p">)</span>
+
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register_extension</span><span class="p">(</span><span class="n">extension</span><span class="p">,</span> <span class="s1">&#39;call&#39;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register_extension</span><span class="p">(</span><span class="n">extension</span><span class="p">,</span> <span class="s1">&#39;text&#39;</span><span class="p">)</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_register_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extension</span><span class="p">,</span> <span class="n">extension_type</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Internally called to register an extension</span>
+<span class="sd">        Not a public API function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">manager</span> <span class="o">=</span> <span class="n">panoramisk</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">Manager</span><span class="p">(</span>
+                <span class="n">host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
+                <span class="n">port</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PORT</span><span class="p">,</span>
+                <span class="n">username</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_USER</span><span class="p">,</span>
+                <span class="n">secret</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PASS</span><span class="p">,</span>
+                <span class="n">ssl</span><span class="o">=</span><span class="kc">False</span>
+            <span class="p">)</span>
+        <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+
+        <span class="n">registration_action</span> <span class="o">=</span> <span class="n">panoramisk</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">Action</span><span class="p">({</span>
+            <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;DialPlanExtensionAdd&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Context&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_CALL_CONTEXT</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">extension_type</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;call&#39;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_TEXT_CONTEXT</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Extension&quot;</span><span class="p">:</span> <span class="n">extension</span><span class="p">,</span>
+            <span class="s2">&quot;Priority&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;Application&quot;</span><span class="p">:</span> <span class="s2">&quot;Stasis&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ApplicationData&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Replace&quot;</span><span class="p">:</span> <span class="s2">&quot;yes&quot;</span>
+        <span class="p">})</span>
+
+        <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">registration_action</span><span class="p">)</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Server.serve_forever">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.serve_forever">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">serve_forever</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the server. Is an async method</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Error if not running as root</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">geteuid</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Must be run as root&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisStart&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_start_handler</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+                <span class="n">apps</span><span class="o">=</span><span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">,</span>
+                    <span class="s2">&quot;asteramisk&quot;</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Server.close">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.close">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Close the server. Is an async method</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ari_stasis_start_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
+            <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_main_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Application </span><span class="si">{</span><span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> has no handler. Probably ok if the code that created it is also controlling it&quot;</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_main_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Internally called when a call or message is received.</span>
+<span class="sd">        This is registered as the callback for StasisStart events.</span>
+<span class="sd">        Not a public API function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span>
+        <span class="n">extension_type</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;args&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;call&#39;</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;text&#39;</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_message_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_call_request_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Internally called when a call is received.</span>
+<span class="sd">        This is registered as the callback for call requests.</span>
+<span class="sd">        Once per call.</span>
+<span class="sd">        Not a public API function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">VoiceUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+        <span class="n">extension</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;EXTEN&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+        <span class="n">call_handler</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
+        <span class="k">await</span> <span class="n">call_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_message_request_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Internally called when a message is received.</span>
+<span class="sd">        This is registered as the callback for message requests.</span>
+<span class="sd">        Once per message.</span>
+<span class="sd">        Not a public API function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">phone_number</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;MESSAGE(from)&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;MESSAGE(body)&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+        <span class="n">extension</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;EXTEN&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+
+        <span class="n">broker</span> <span class="o">=</span> <span class="k">await</span> <span class="n">MessageBroker</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">our_number</span><span class="o">=</span><span class="n">extension</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">broker</span><span class="o">.</span><span class="n">has_conversation</span><span class="p">(</span><span class="n">phone_number</span><span class="p">):</span>
+            <span class="c1"># Existing conversation, use the existing UI and simply pass the message to it via the broker</span>
+            <span class="k">await</span> <span class="n">broker</span><span class="o">.</span><span class="n">message_received</span><span class="p">(</span><span class="n">phone_number</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># New conversation</span>
+            <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">TextUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">phone_number</span><span class="p">)</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">message_handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
+            <span class="k">await</span> <span class="n">message_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Asteramisk</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../intro.html">Introduction to Asteramisk</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Darryl Martin.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -38,23 +38,89 @@
             
   <section id="configuration">
 <h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">¶</a></h1>
-<p>First, you need to configure Asteramisk to connect to your Asterisk PBX.
+<p>First, you need to configure Asterisk.
+You can find example configuration files in <cite>example_configs/</cite>.
+You should be able to copy the <cite>example_configs</cite> directory contents directly into <cite>/etc/asterisk/</cite>.
+You need to enable the Asterisk ARI interface and the Asterisk AMI interface.</p>
+<section id="ami-configuration">
+<h2>AMI configuration<a class="headerlink" href="#ami-configuration" title="Link to this heading">¶</a></h2>
+<p>Make sure the AMI interface is enabled in Asterisk.
+Open the file <cite>/etc/asterisk/manager.conf</cite> and verify that the following lines are present:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
+<span class="na">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
+<span class="na">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">5038</span>
+<span class="na">bindaddr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">0.0.0.0</span>
+</pre></div>
+</div>
+<p>In <cite>/etc/asterisk/manager.d/</cite>, create a file named <cite>yourusername.conf</cite> and add the following lines:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[yourusername]</span>
+<span class="na">secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yourpassword</span>
+<span class="na">read</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">all</span>
+<span class="na">write</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">all</span>
+</pre></div>
+</div>
+<p>This will enable the AMI interface for the user <cite>yourusername</cite> with password <cite>yourpassword</cite>.
+You can then configure Asteramisk to use this user when connecting to Asterisk AMI.</p>
+</section>
+<section id="ari-configuration">
+<h2>ARI configuration<a class="headerlink" href="#ari-configuration" title="Link to this heading">¶</a></h2>
+<p>Make sure the ARI interface is enabled in Asterisk.
+This is a little different from the AMI interface, but not any harder.
+Open the file <cite>/etc/asterisk/ari.conf</cite> and verify that the following lines are present:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
+<span class="na">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
+<span class="na">pretty</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
+</pre></div>
+</div>
+<p>In the same file, add the following lines:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[yourariusername]</span>
+<span class="na">type</span><span class="o">=</span><span class="s">user</span>
+<span class="na">read_only</span><span class="o">=</span><span class="s">no</span>
+<span class="na">password</span><span class="o">=</span><span class="s">youraripassword</span>
+</pre></div>
+</div>
+<p>This will enable the ARI interface for the user <cite>yourariusername</cite> with password <cite>youraripassword</cite>.</p>
+<p>Since the Rest API depends on Asterisk’s built-in mini-http server, you also need to make sure it is enabled in <cite>/etc/asterisk/http.conf</cite>:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
+<span class="na">enabled</span><span class="o">=</span><span class="s">yes</span>
+<span class="na">bindaddr</span><span class="o">=</span><span class="s">0.0.0.0</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>By default, both the ARI interface and the mini-http server it depends on are disabled.
+You need to enable them before Asteramisk will work.</p>
+</div>
+</section>
+<section id="asteramisk-configuration">
+<h2>Asteramisk configuration<a class="headerlink" href="#asteramisk-configuration" title="Link to this heading">¶</a></h2>
+<p>Next, you need to configure Asteramisk to connect to your Asterisk PBX.
 This is done by importing the <cite>config</cite> module and setting the following variables.
 Some of these variables are optional, but you need to set the ones that are required to make Asteramisk work.
-See the <cite>config</cite> module for more details.</p>
+See the <cite>config</cite> module for a complete list of configuration variables.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 
 <span class="c1"># Required configuration variables</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span> <span class="o">=</span> <span class="s1">&#39;127.0.0.1&#39;</span>
+
+<span class="c1"># Configure Asterisk AMI. Required for registering extensions, making calls and sending text messages</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PORT</span> <span class="o">=</span> <span class="mi">5038</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_USER</span> <span class="o">=</span> <span class="s1">&#39;yourusername&#39;</span> <span class="c1"># Must be configured in Asterisk manager.conf</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PASS</span> <span class="o">=</span> <span class="s1">&#39;yourpassword&#39;</span> <span class="c1"># Must be configured in Asterisk manager.conf</span>
-<span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_CONTEXT</span>
+
+<span class="c1"># Configure Asterisk ARI interface. Required for handling incoming calls, playing audio, and general control of the call</span>
+<span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PORT</span> <span class="o">=</span> <span class="mi">8088</span> <span class="c1"># The port on the Asterisk side where the Asterisk Rest API will be listening. Default is 8088</span>
+<span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_USER</span> <span class="o">=</span> <span class="s1">&#39;yourusername&#39;</span> <span class="c1"># Must be configured in Asterisk ari.conf</span>
+<span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PASS</span> <span class="o">=</span> <span class="s1">&#39;yourpassword&#39;</span> <span class="c1"># Must be configured in Asterisk ari.conf</span>
+
+<span class="c1"># Configure PSTN gateway. Required for making PSTN calls</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_CALL_CONTEXT</span> <span class="o">=</span> <span class="s1">&#39;from-pstn&#39;</span> <span class="c1"># Context specified in context=yourcontext in Asterisk pjsip.conf under your endpoint configuration</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_TEXT_CONTEXT</span> <span class="o">=</span> <span class="s1">&#39;from-pstn&#39;</span> <span class="c1"># Context specified in message_context=yourcontext in Asterisk pjsip.conf under your endpoint configuration</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_GATEWAY_HOST</span> <span class="o">=</span> <span class="s1">&#39;toronto1.voip.ms&#39;</span> <span class="c1"># The IP address or hostname of your SIP service provider. The POP server for PSTN calls</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_GATEWAY_PORT</span> <span class="o">=</span> <span class="mi">5060</span> <span class="c1"># The port number of your SIP service provider</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_GATEWAY_USER</span> <span class="o">=</span> <span class="s1">&#39;yourusername&#39;</span> <span class="c1"># A username that has been configured with your SIP provider for authentication to your SIP account. Asteramisk needs it for outgoing PSTN calls</span>
+
+<span class="c1"># Configure system information (optional)</span>
 <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span> <span class="o">=</span> <span class="s1">&#39;1234567890&#39;</span> <span class="c1"># A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint</span>
 <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span> <span class="o">=</span> <span class="s1">&#39;Your Company Name&#39;</span> <span class="c1"># A name that will be used in outgoing calls and text messages</span>
 
@@ -65,6 +131,7 @@ See the <cite>config</cite> module for more details.</p>
 <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_PORT</span> <span class="o">=</span> <span class="mi">4753</span> <span class="c1"># The port to bind the AGI server to. Default is 4753. You need to change this if you are running multiple instances of projects that use Asteramisk</span>
 </pre></div>
 </div>
+</section>
 </section>
 
 
@@ -97,7 +164,12 @@ See the <cite>config</cite> module for more details.</p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="intro.html">Introduction to Asteramisk</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#ami-configuration">AMI configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ari-configuration">ARI configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#asteramisk-configuration">Asteramisk configuration</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
 </ul>

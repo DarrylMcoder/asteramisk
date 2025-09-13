@@ -36,9 +36,17 @@ class UI(AsyncClass):
         raise NotImplementedError
 
     async def answer(self):
+        """
+        Answer the call or text message conversation
+        Performs any necessary setup
+        """
         raise NotImplementedError
 
     async def hangup(self):
+        """
+        Hangup the call or text message conversation
+        Performs any necessary cleanup
+        """
         raise NotImplementedError
 
     async def say(self, text):
@@ -73,11 +81,42 @@ class UI(AsyncClass):
         raise NotImplementedError
 
     async def input_stream(self):
+        """
+        Get a stream of input from the user
+        Example usage:
+        ... code-block:: python
+        async for user_input in ui.input_stream():
+            print(user_input)
+        """
         raise NotImplementedError
 
     async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None) -> None:
         """
-        Connect to an OpenAI agent
+        Connect to an OpenAI agent. Either an agents.Agent or an agents.realtime.RealtimeAgent
+        Example usage:
+        ... code-block:: python
+        import asyncio
+        from agents import Agent
+        from asteramisk import Server
+        from asteramisk.ui import VoiceUI
+
+        agent = Agent(
+            name="Bob",
+            instructions="Your agent instructions"
+        )
+
+        async def call_handler(ui: VoiceUI):
+            await ui.answer()
+            await ui.connect_openai_agent(agent)
+
+        async def main():
+            server = await Server.create()
+            await server.register_extension("1234567890", call_handler)
+            await server.run_forever()
+
+        if __name__ == "__main__":
+            asyncio.run(main())
+
         :param agent: Agent to connect to
         :param talk_first: Whether to wait for the agent to speak first
         :param model: Model to use, defaults to the OpenAI default

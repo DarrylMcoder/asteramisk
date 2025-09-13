@@ -35,12 +35,229 @@
 
           <div class="body" role="main">
             
-  <section id="module-asteramisk.ui.voice_ui">
-<span id="api-reference"></span><h1>API reference<a class="headerlink" href="#module-asteramisk.ui.voice_ui" title="Link to this heading">¶</a></h1>
+  <section id="module-asteramisk.server">
+<span id="api-reference"></span><h1>API reference<a class="headerlink" href="#module-asteramisk.server" title="Link to this heading">¶</a></h1>
 <dl class="py class">
+<dt class="sig sig-object py" id="asteramisk.server.Server">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.server.</span></span><span class="sig-name descname"><span class="pre">Server</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">async_creation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/server.html#Server"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.server.Server" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">AsyncClass</span></code></p>
+<p>The main server class
+Create an instance of this class to receive calls and messages
+Example:
+.. code-block:: python</p>
+<blockquote>
+<div><p>from asteramisk import Server</p>
+<dl class="simple">
+<dt>async def call_handler(ui: VoiceUI):</dt><dd><p>await ui.say(“Hello, world!”)</p>
+</dd>
+<dt>async def message_handler(ui: TextUI):</dt><dd><p>await ui.say(“Hello, world!”)</p>
+</dd>
+</dl>
+<p>server = await Server.create()
+await server.register_extension(“1234”, call_handler=call_handler, message_handler=message_handler)
+await server.serve_forever()</p>
+</div></blockquote>
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.server.Server.close">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/server.html#Server.close"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.server.Server.close" title="Link to this definition">¶</a></dt>
+<dd><p>Close the server. Is an async method</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.server.Server.register_extension">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">register_extension</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">extension</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">call_handler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message_handler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/server.html#Server.register_extension"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.server.Server.register_extension" title="Link to this definition">¶</a></dt>
+<dd><p>Registers a phone number with asterisk.
+Is an async method</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>extension</strong> – The phone number to register</p></li>
+<li><p><strong>call_handler</strong> – The function to call when the phone number is called. Must be a coroutine. Will be passed an instance of asteramisk.ui.VoiceUI</p></li>
+<li><p><strong>message_handler</strong> – The function to call when a message is sent to the phone number. Must be a coroutine. Will be passed an instance of asteramisk.ui.TextUI</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.server.Server.serve_forever">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">serve_forever</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/server.html#Server.serve_forever"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.server.Server.serve_forever" title="Link to this definition">¶</a></dt>
+<dd><p>Runs the server. Is an async method</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class" id="module-asteramisk.ui.ui">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.ui.ui.</span></span><span class="sig-name descname"><span class="pre">UI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">async_creation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">AsyncClass</span></code></p>
+<p>Base class for all user interfaces
+All user interfaces have these basic methods
+All methods are async</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.UIType">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">UIType</span></span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.UIType"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.UIType" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.UIType.TEXT">
+<span class="sig-name descname"><span class="pre">TEXT</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'text'</span></em><a class="headerlink" href="#asteramisk.ui.ui.UI.UIType.TEXT" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.UIType.VOICE">
+<span class="sig-name descname"><span class="pre">VOICE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'voice'</span></em><a class="headerlink" href="#asteramisk.ui.ui.UI.UIType.VOICE" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.answer">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">answer</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.answer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.answer" title="Link to this definition">¶</a></dt>
+<dd><p>Answer the call or text message conversation
+Performs any necessary setup</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.ask_yes_no">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ask_yes_no</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.ask_yes_no"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.ask_yes_no" title="Link to this definition">¶</a></dt>
+<dd><p>Ask the user a yes/no question
+:param text: Text to prompt the user
+:return: True if the user answers yes or False if the user answers no</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.close">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.close"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.close" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.connect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connect_openai_agent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Agent</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">talk_first</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.connect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.connect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Connect to an OpenAI agent. Either an agents.Agent or an agents.realtime.RealtimeAgent
+Example usage:
+… code-block:: python
+import asyncio
+from agents import Agent
+from asteramisk import Server
+from asteramisk.ui import VoiceUI</p>
+<dl class="simple">
+<dt>agent = Agent(</dt><dd><p>name=”Bob”,
+instructions=”Your agent instructions”</p>
+</dd>
+</dl>
+<p>)</p>
+<dl class="simple">
+<dt>async def call_handler(ui: VoiceUI):</dt><dd><p>await ui.answer()
+await ui.connect_openai_agent(agent)</p>
+</dd>
+<dt>async def main():</dt><dd><p>server = await Server.create()
+await server.register_extension(“1234567890”, call_handler)
+await server.run_forever()</p>
+</dd>
+<dt>if __name__ == “__main__”:</dt><dd><p>asyncio.run(main())</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>agent</strong> – Agent to connect to</p></li>
+<li><p><strong>talk_first</strong> – Whether to wait for the agent to speak first</p></li>
+<li><p><strong>model</strong> – Model to use, defaults to the OpenAI default</p></li>
+<li><p><strong>voice</strong> – Voice to use, defaults to the OpenAI default</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.disconnect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">disconnect_openai_agent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.disconnect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.disconnect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Disconnect any connected OpenAI agent
+:return: None</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.gather">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">gather</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_digits</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.gather"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.gather" title="Link to this definition">¶</a></dt>
+<dd><p>Prompt the user for dtmf input
+:param text: Text to prompt the user
+:return: The user’s input</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.hangup">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">hangup</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.hangup"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.hangup" title="Link to this definition">¶</a></dt>
+<dd><p>Hangup the call or text message conversation
+Performs any necessary cleanup</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.input_stream">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">input_stream</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.input_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.input_stream" title="Link to this definition">¶</a></dt>
+<dd><p>Get a stream of input from the user
+Example usage:
+… code-block:: python
+async for user_input in ui.input_stream():</p>
+<blockquote>
+<div><p>print(user_input)</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.menu">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">menu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callbacks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">callable</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice_callbacks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">callable</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text_callbacks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">callable</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.menu"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.menu" title="Link to this definition">¶</a></dt>
+<dd><p>Present a menu of options to the user
+Provide <cite>text</cite> as a string containing the menu options available.
+Provide <cite>callbacks</cite>, <cite>voice_callbacks</cite>, or <cite>text_callbacks</cite> as a dictionary of callbacks, one for each option.
+If only <cite>callbacks</cite> is provided, it is used for both voice and text UIs.
+If <cite>voice_callbacks</cite> and <cite>text_callbacks</cite> are provided, the one corresponding to the current type of UI is used.
+:param text: Text to prompt the user, must contain the menu
+:param callbacks: List of callbacks, one for each option
+:param voice_callbacks: Same as callbacks, but used only in voice UIs
+:param text_callbacks: Same as callbacks, but used only in text UIs
+:return: None. Selected callback will be called</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.prompt">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prompt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.prompt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.prompt" title="Link to this definition">¶</a></dt>
+<dd><p>Prompt the user for input
+:param text: Text to prompt the user
+:return: The user’s input</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.say">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">say</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.say"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.say" title="Link to this definition">¶</a></dt>
+<dd><p>Say text to the user
+:param text: Text to say</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.select">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">select</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/ui.html#UI.select"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.ui.UI.select" title="Link to this definition">¶</a></dt>
+<dd><p>Present a list of choices to the user
+:param text: Text to prompt the user, must contain the menu
+:param options: Dictionary of options, like {“1”: “Option 1”, “2”: “Option 2”, …}
+:param voice_options: Same as options, but used only in voice UIs
+:param text_options: Same as options, but used only in text UIs
+:return: Selected option</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="asteramisk.ui.ui.UI.ui_type">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ui_type</span></span><a class="headerlink" href="#asteramisk.ui.ui.UI.ui_type" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class" id="module-asteramisk.ui.voice_ui">
 <dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.ui.voice_ui.</span></span><span class="sig-name descname"><span class="pre">VoiceUI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'en-US-Neural2-J'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">UI</span></code></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.ui.voice_ui.</span></span><span class="sig-name descname"><span class="pre">VoiceUI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">async_creation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#asteramisk.ui.ui.UI" title="asteramisk.ui.ui.UI"><code class="xref py py-class docutils literal notranslate"><span class="pre">UI</span></code></a></p>
 <p>A voice user interface for Asterisk
 Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
 API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)</p>
@@ -59,6 +276,59 @@ API should be the same as the base UI class and any other UI subclasses (TextUI,
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.connect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connect_openai_agent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">talk_first</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.connect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.connect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Connects the voice UI to an OpenAI agent
+Example usage:
+.. code-block:: python</p>
+<blockquote>
+<div><p>from asteramisk.ui import VoiceUI
+from asteramisk.server import Server</p>
+<dl>
+<dt>async def call_handler(ui: VoiceUI):</dt><dd><p>await ui.answer()
+await ui.say(“Passing control to OpenAI agent”)
+bob = RealtimeAgent(</p>
+<blockquote>
+<div><p>name=”Bob”,
+instructions=”Your agent instructions”</p>
+</div></blockquote>
+<p>)
+await ui.connect_openai_agent(bob, model=”gpt-4o-realtime-preview”, voice=”Cedar”)
+# Control of the conversation is now passed to the OpenAI agent
+# You can use OpenAI’s tool calling to manage your conversation flow
+# You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio</p>
+</dd>
+</dl>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>agent</strong> – The OpenAI agent to connect to, either an agents.Agent or agents.realtime.RealtimeAgent</p></li>
+<li><p><strong>talk_first</strong> – Whether or not the agent should speak first</p></li>
+<li><p><strong>model</strong> – The OpenAI model to use</p></li>
+<li><p><strong>voice</strong> – The OpenAI realtime voice to use. Only has an effect if agent is an agents.realtime.RealtimeAgent</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A task that will run the OpenAI agent. You can await this task to wait for the agent to finish</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.control_say">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">control_say</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.control_say"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.control_say" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.disconnect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">disconnect_openai_agent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.disconnect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.disconnect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Disconnects the voice UI from any currently connected OpenAI agent.
+Currently quite buggy so use with caution.
+Once connected, agents generally run until the conversation ends.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.gather">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">gather</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_digits</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.gather"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.gather" title="Link to this definition">¶</a></dt>
 <dd><p>Prompt the user for dtmf input
@@ -69,67 +339,49 @@ API should be the same as the base UI class and any other UI subclasses (TextUI,
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.hangup">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">hangup</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.hangup"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.hangup" title="Link to this definition">¶</a></dt>
-<dd><p>Hangs up the call</p>
+<dd><p>Hangup the call or text message conversation
+Performs any necessary cleanup</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.play">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">play</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.play"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.play" title="Link to this definition">¶</a></dt>
-<dd><p>Play file
-:param filename: Name of the file to play, without the extension
-File must be in asterisk sounds directory
-e.g. “recordings/recording”.
-:raise GoBackException: If the user presses *
-:raise GoToMainException: If the user presses #</p>
+<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.input_stream">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">input_stream</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.input_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.input_stream" title="Link to this definition">¶</a></dt>
+<dd><p>Returns an async generator that yields transcriptions as they come</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.prompt">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prompt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.prompt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.prompt" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prompt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.prompt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.prompt" title="Link to this definition">¶</a></dt>
 <dd><p>Prompt the user for input
 :param text: Text to prompt the user
 :return: The user’s input</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.record">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prompt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">playbeep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2500</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.record"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.record" title="Link to this definition">¶</a></dt>
-<dd><p>Record audio
-:param prompt: Text to prompt
-:param filename: Name of the file to save recording to, if None a random name will be generated. Only the name, not the extension or path
-:param timeout: Maximum length of recording in milliseconds
-:param playbeep: Play a beep before recording
-:param silence: Milliseconds of silence before recording is stopped
-:return: Full path to the saved file</p>
-</dd></dl>
-
-<dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.say">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">say</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.say"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.say" title="Link to this definition">¶</a></dt>
-<dd><p>Speak text to the user
+<dd><p>Speak text to the user, waiting for speech to finish before returning
 :param text: Text to speak
 :raise: GoBackException: if the user presses *
 :raise: GotoMainException: if the user presses #</p>
 </dd></dl>
 
-<dl class="py method">
-<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.send_command">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">send_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/voice_ui.html#VoiceUI.send_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.send_command" title="Link to this definition">¶</a></dt>
-<dd><p>Sends an AGI command to Asterisk
-:param: command: Command to send
-:return: dict: Result of the AGI command</p>
-</dd></dl>
+<dl class="py property">
+<dt class="sig sig-object py" id="asteramisk.ui.voice_ui.VoiceUI.ui_type">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ui_type</span></span><a class="headerlink" href="#asteramisk.ui.voice_ui.VoiceUI.ui_type" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
 
 </dd></dl>
 
 <dl class="py class" id="module-asteramisk.ui.text_ui">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.ui.text_ui.</span></span><span class="sig-name descname"><span class="pre">TextUI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recipient_number</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">our_callerid_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">our_callerid_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'Default'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">UI</span></code></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.ui.text_ui.</span></span><span class="sig-name descname"><span class="pre">TextUI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">async_creation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#asteramisk.ui.ui.UI" title="asteramisk.ui.ui.UI"><code class="xref py py-class docutils literal notranslate"><span class="pre">UI</span></code></a></p>
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.answer">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">answer</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.answer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.answer" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>“Answer” the call. Mostly for compatibility with other UIs. Connects to the broker.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.ask_yes_no">
@@ -140,17 +392,80 @@ e.g. “recordings/recording”.
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.connect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connect_openai_agent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Agent</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">talk_first</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">voice</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.connect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.connect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Connect this UI to an OpenAI agent
+This automates the passing of messages or audio between the UI and the OpenAI agent
+After connecting, control of the conversation is passed to the OpenAI agent.
+You will likely then want to use OpenAI’s tool calling to manage your conversation flow
+Example usage:
+.. code-block:: python</p>
+<blockquote>
+<div><p>from agents import Agent
+from asteramisk.ui import TextUI
+from asteramisk.server import Server</p>
+<dl>
+<dt>async def message_handler(ui: TextUI):</dt><dd><p>await ui.answer()
+await ui.say(“Passing control to OpenAI agent”)
+bob = Agent(</p>
+<blockquote>
+<div><p>name=”Bob”,
+instructions=”Your agent instructions”</p>
+</div></blockquote>
+<p>)
+await ui.connect_openai_agent(bob, model=”gpt-4o”)
+# Control of the conversation is now passed to the OpenAI agent
+# You can use OpenAI’s tool calling to manage your conversation flow
+# You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio</p>
+</dd>
+</dl>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>agent</strong> – The OpenAI agent to connect to the UI, either an agents.Agent or an agents.realtime.RealtimeAgent</p></li>
+<li><p><strong>talk_first</strong> – If True, the agent will speak first</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A task that will run the OpenAI agent. You can await this task to wait for the conversation to end</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.disconnect_openai_agent">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">disconnect_openai_agent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.disconnect_openai_agent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.disconnect_openai_agent" title="Link to this definition">¶</a></dt>
+<dd><p>Disconnect any connected OpenAI agent
+:return: None</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.gather">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">gather</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_digits</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.gather"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.gather" title="Link to this definition">¶</a></dt>
-<dd><p>Prompt the user for dtmf input
+<dd><p>Prompt the user to enter digits
 :param text: Text to prompt the user
+:param num_digits: Number of digits to wait for
 :return: The user’s input</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.hangup">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">hangup</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.hangup"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.hangup" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>“Hangup” the call. Mostly for compatibility with other UIs. Closes the broker.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.input_stream">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">input_stream</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.input_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.input_stream" title="Link to this definition">¶</a></dt>
+<dd><p>Get a stream of input from the user
+Example usage:
+… code-block:: python
+async for user_input in ui.input_stream():</p>
+<blockquote>
+<div><p>print(user_input)</p>
+</div></blockquote>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.prompt">
@@ -163,19 +478,24 @@ e.g. “recordings/recording”.
 <dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.say">
 <em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">say</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/ui/text_ui.html#TextUI.say"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.say" title="Link to this definition">¶</a></dt>
-<dd><p>Say text to the user
+<dd><p>Say text to the user. Will be sent as a text message
 :param text: Text to say</p>
 </dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="asteramisk.ui.text_ui.TextUI.ui_type">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ui_type</span></span><a class="headerlink" href="#asteramisk.ui.text_ui.TextUI.ui_type" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
 
 </dd></dl>
 
 <dl class="py class" id="module-asteramisk.communicator">
 <dt class="sig sig-object py" id="asteramisk.communicator.Communicator">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.communicator.</span></span><span class="sig-name descname"><span class="pre">Communicator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">callerid_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callerid_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'Default'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/communicator.html#Communicator"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.communicator.Communicator" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">asteramisk.communicator.</span></span><span class="sig-name descname"><span class="pre">Communicator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">async_creation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/communicator.html#Communicator"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.communicator.Communicator" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">AsyncClass</span></code></p>
 <p>A class for making calls and text message conversations.</p>
 <p>Example usage:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">communicator</span> <span class="o">=</span> <span class="k">await</span> <span class="n">Communicator</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">communicator</span> <span class="o">=</span> <span class="k">await</span> <span class="n">Communicator</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">callerid_number</span><span class="o">=</span><span class="s2">&quot;1234567890&quot;</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="s2">&quot;John Doe&quot;</span><span class="p">)</span>
 <span class="k">try</span><span class="p">:</span>
     <span class="k">await</span> <span class="n">communicator</span><span class="o">.</span><span class="n">make_call</span><span class="p">(</span><span class="n">recipient_number</span><span class="o">=</span><span class="s2">&quot;1234567890&quot;</span><span class="p">)</span>
     <span class="k">await</span> <span class="n">communicator</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">recipient_number</span><span class="o">=</span><span class="s2">&quot;1234567890&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Hello world!&quot;</span><span class="p">)</span>
@@ -185,7 +505,7 @@ e.g. “recordings/recording”.
 </pre></div>
 </div>
 <p>Can be used as a context manager.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">with</span> <span class="n">Communicator</span><span class="o">.</span><span class="n">create</span><span class="p">()</span> <span class="k">as</span> <span class="n">communicator</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">with</span> <span class="k">await</span> <span class="n">Communicator</span><span class="o">.</span><span class="n">create</span><span class="p">()</span> <span class="k">as</span> <span class="n">communicator</span><span class="p">:</span>
     <span class="k">await</span> <span class="n">communicator</span><span class="o">.</span><span class="n">make_call</span><span class="p">(</span><span class="n">recipient_number</span><span class="o">=</span><span class="s2">&quot;1234567890&quot;</span><span class="p">)</span>
     <span class="k">await</span> <span class="n">communicator</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">recipient_number</span><span class="o">=</span><span class="s2">&quot;1234567890&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Hello world!&quot;</span><span class="p">)</span>
 </pre></div>
@@ -201,28 +521,14 @@ e.g. “recordings/recording”.
 <dd></dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="asteramisk.communicator.Communicator.create">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">create</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/asteramisk/communicator.html#Communicator.create"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.communicator.Communicator.create" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py method">
 <dt class="sig sig-object py" id="asteramisk.communicator.Communicator.make_call">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">make_call</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recipient_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">application</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'AGI'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'agi:async'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callerid_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callerid_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#asteramisk.ui.voice_ui.VoiceUI" title="asteramisk.ui.voice_ui.VoiceUI"><span class="pre">VoiceUI</span></a></span></span><a class="reference internal" href="_modules/asteramisk/communicator.html#Communicator.make_call"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.communicator.Communicator.make_call" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">make_call</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recipient_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callerid_number</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callerid_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#asteramisk.ui.voice_ui.VoiceUI" title="asteramisk.ui.voice_ui.VoiceUI"><span class="pre">VoiceUI</span></a></span></span><a class="reference internal" href="_modules/asteramisk/communicator.html#Communicator.make_call"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#asteramisk.communicator.Communicator.make_call" title="Link to this definition">¶</a></dt>
 <dd><p>Makes a call to the recipient and returns a VoiceUI object.
 :param recipient_number: The number to call. Uses PJSIP with voip.ms
-:type recipient_number: str
 :param channel: The channel to dial for the call. Mutually exclusive with recipient_number
-:type channel: str
-:param application: The application to execute at our end of the call.
-:type application: str
-:param data: The data to pass to the application.
-:type data: str
 :param callerid_number: The number to use for the caller ID.
-:type callerid_number: str
 :param callerid_name: The name to use for the caller ID.
-:type callerid_name: str
 :return: An asteramisk.ui.VoiceUI object.
-:rtype: asteramisk.ui.VoiceUI
 :raises ValueError: If neither recipient_number or channel is provided or both are provided
 :raises asteramisk.exceptions.CallFailedException: If the call fails</p>
 </dd></dl>
@@ -294,6 +600,8 @@ e.g. “recordings/recording”.
 <li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">API reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#asteramisk.server.Server"><code class="docutils literal notranslate"><span class="pre">Server</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#asteramisk.ui.ui.UI"><code class="docutils literal notranslate"><span class="pre">UI</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#asteramisk.ui.voice_ui.VoiceUI"><code class="docutils literal notranslate"><span class="pre">VoiceUI</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#asteramisk.ui.text_ui.TextUI"><code class="docutils literal notranslate"><span class="pre">TextUI</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#asteramisk.communicator.Communicator"><code class="docutils literal notranslate"><span class="pre">Communicator</span></code></a></li>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>asteramisk.ui.ui &#8212; Asteramisk 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for asteramisk.ui.ui</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">Agent</span><span class="p">,</span> <span class="n">SQLiteSession</span><span class="p">,</span> <span class="n">Runner</span><span class="p">,</span> <span class="n">RunResult</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.async_class</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncClass</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="UI">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">UI</span><span class="p">(</span><span class="n">AsyncClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Base class for all user interfaces</span>
+<span class="sd">    All user interfaces have these basic methods</span>
+<span class="sd">    All methods are async</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="UI.UIType">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.UIType">[docs]</a>
+    <span class="k">class</span><span class="w"> </span><span class="nc">UIType</span><span class="p">:</span>
+        <span class="n">VOICE</span> <span class="o">=</span> <span class="s2">&quot;voice&quot;</span>
+        <span class="n">TEXT</span> <span class="o">=</span> <span class="s2">&quot;text&quot;</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aenter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">answer</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aexit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_val</span><span class="p">,</span> <span class="n">exc_tb</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+
+<div class="viewcode-block" id="UI.close">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.close">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ui_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Subclasses must implement this method&quot;</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_unique_id</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+<div class="viewcode-block" id="UI.answer">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.answer">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">answer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Answer the call or text message conversation</span>
+<span class="sd">        Performs any necessary setup</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.hangup">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.hangup">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">hangup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Hangup the call or text message conversation</span>
+<span class="sd">        Performs any necessary cleanup</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.say">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.say">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">say</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Say text to the user</span>
+<span class="sd">        :param text: Text to say</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.prompt">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.prompt">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Prompt the user for input</span>
+<span class="sd">        :param text: Text to prompt the user</span>
+<span class="sd">        :return: The user&#39;s input</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.gather">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.gather">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">gather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">num_digits</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Prompt the user for dtmf input</span>
+<span class="sd">        :param text: Text to prompt the user</span>
+<span class="sd">        :return: The user&#39;s input</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.ask_yes_no">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.ask_yes_no">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ask_yes_no</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Ask the user a yes/no question</span>
+<span class="sd">        :param text: Text to prompt the user</span>
+<span class="sd">        :return: True if the user answers yes or False if the user answers no</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.input_stream">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.input_stream">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">input_stream</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get a stream of input from the user</span>
+<span class="sd">        Example usage:</span>
+<span class="sd">        ... code-block:: python</span>
+<span class="sd">        async for user_input in ui.input_stream():</span>
+<span class="sd">            print(user_input)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.connect_openai_agent">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.connect_openai_agent">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">:</span> <span class="n">Agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Connect to an OpenAI agent. Either an agents.Agent or an agents.realtime.RealtimeAgent</span>
+<span class="sd">        Example usage:</span>
+<span class="sd">        ... code-block:: python</span>
+<span class="sd">        import asyncio</span>
+<span class="sd">        from agents import Agent</span>
+<span class="sd">        from asteramisk import Server</span>
+<span class="sd">        from asteramisk.ui import VoiceUI</span>
+
+<span class="sd">        agent = Agent(</span>
+<span class="sd">            name=&quot;Bob&quot;,</span>
+<span class="sd">            instructions=&quot;Your agent instructions&quot;</span>
+<span class="sd">        )</span>
+
+<span class="sd">        async def call_handler(ui: VoiceUI):</span>
+<span class="sd">            await ui.answer()</span>
+<span class="sd">            await ui.connect_openai_agent(agent)</span>
+
+<span class="sd">        async def main():</span>
+<span class="sd">            server = await Server.create()</span>
+<span class="sd">            await server.register_extension(&quot;1234567890&quot;, call_handler)</span>
+<span class="sd">            await server.run_forever()</span>
+
+<span class="sd">        if __name__ == &quot;__main__&quot;:</span>
+<span class="sd">            asyncio.run(main())</span>
+
+<span class="sd">        :param agent: Agent to connect to</span>
+<span class="sd">        :param talk_first: Whether to wait for the agent to speak first</span>
+<span class="sd">        :param model: Model to use, defaults to the OpenAI default</span>
+<span class="sd">        :param voice: Voice to use, defaults to the OpenAI default</span>
+<span class="sd">        :return: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.disconnect_openai_agent">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.disconnect_openai_agent">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">disconnect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Disconnect any connected OpenAI agent</span>
+<span class="sd">        :return: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+
+<div class="viewcode-block" id="UI.menu">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.menu">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">menu</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice_callbacks</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">text_callbacks</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Present a menu of options to the user</span>
+<span class="sd">        Provide `text` as a string containing the menu options available. </span>
+<span class="sd">        Provide `callbacks`, `voice_callbacks`, or `text_callbacks` as a dictionary of callbacks, one for each option.</span>
+<span class="sd">        If only `callbacks` is provided, it is used for both voice and text UIs.</span>
+<span class="sd">        If `voice_callbacks` and `text_callbacks` are provided, the one corresponding to the current type of UI is used.</span>
+<span class="sd">        :param text: Text to prompt the user, must contain the menu</span>
+<span class="sd">        :param callbacks: List of callbacks, one for each option</span>
+<span class="sd">        :param voice_callbacks: Same as callbacks, but used only in voice UIs</span>
+<span class="sd">        :param text_callbacks: Same as callbacks, but used only in text UIs</span>
+<span class="sd">        :return: None. Selected callback will be called</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">callbacks</span> <span class="ow">and</span> <span class="p">(</span><span class="n">voice_callbacks</span> <span class="ow">or</span> <span class="n">text_callbacks</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Both callbacks and voice/text callbacks provided. This is rather ambiguous. Using callbacks.&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">callbacks</span><span class="p">:</span>
+            <span class="n">local_callbacks</span> <span class="o">=</span> <span class="n">callbacks</span>
+        <span class="k">elif</span> <span class="n">voice_callbacks</span> <span class="ow">or</span> <span class="n">text_callbacks</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">voice_callbacks</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">VOICE</span><span class="p">:</span>
+                <span class="n">local_callbacks</span> <span class="o">=</span> <span class="n">voice_callbacks</span>
+            <span class="k">elif</span> <span class="n">text_callbacks</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">TEXT</span><span class="p">:</span>
+                <span class="n">local_callbacks</span> <span class="o">=</span> <span class="n">text_callbacks</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No callbacks provided for current UI type&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No callbacks provided&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Prompt the user to select an option</span>
+        <span class="c1"># Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">VOICE</span><span class="p">:</span>
+            <span class="n">num_digits</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">local_callbacks</span><span class="o">.</span><span class="n">keys</span><span class="p">()])</span>
+            <span class="n">selected</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">num_digits</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">TEXT</span><span class="p">:</span>
+            <span class="n">selected</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">selected</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">local_callbacks</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">menu</span><span class="p">(</span><span class="s2">&quot;That option is not available, please try again&quot;</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">,</span> <span class="n">voice_callbacks</span><span class="p">,</span> <span class="n">text_callbacks</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">local_callbacks</span><span class="p">[</span><span class="n">selected</span><span class="p">]()</span></div>
+
+
+<div class="viewcode-block" id="UI.select">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.ui.UI.select">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">select</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">voice_options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">text_options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Present a list of choices to the user</span>
+<span class="sd">        :param text: Text to prompt the user, must contain the menu</span>
+<span class="sd">        :param options: Dictionary of options, like {&quot;1&quot;: &quot;Option 1&quot;, &quot;2&quot;: &quot;Option 2&quot;, ...}</span>
+<span class="sd">        :param voice_options: Same as options, but used only in voice UIs</span>
+<span class="sd">        :param text_options: Same as options, but used only in text UIs</span>
+<span class="sd">        :return: Selected option</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">options</span> <span class="ow">and</span> <span class="p">(</span><span class="n">voice_options</span> <span class="ow">or</span> <span class="n">text_options</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Both options and voice/text options provided. This is rather ambiguous. Using options.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">options</span><span class="p">:</span>
+            <span class="n">local_options</span> <span class="o">=</span> <span class="n">options</span>
+        <span class="k">elif</span> <span class="n">voice_options</span> <span class="ow">or</span> <span class="n">text_options</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">voice_options</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">VOICE</span><span class="p">:</span>
+                <span class="n">local_options</span> <span class="o">=</span> <span class="n">voice_options</span>
+            <span class="k">elif</span> <span class="n">text_options</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">TEXT</span><span class="p">:</span>
+                <span class="n">local_options</span> <span class="o">=</span> <span class="n">text_options</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No options provided for current UI type&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No options provided&quot;</span><span class="p">)</span>
+        <span class="c1"># Prompt the user to select an option</span>
+        <span class="c1"># Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">VOICE</span><span class="p">:</span>
+            <span class="n">num_digits</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">local_options</span><span class="o">.</span><span class="n">keys</span><span class="p">()])</span>
+            <span class="n">selected</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">num_digits</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">TEXT</span><span class="p">:</span>
+            <span class="n">selected</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">selected</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">local_options</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;That option is not available, please try again&quot;</span><span class="p">,</span> <span class="n">options</span><span class="p">,</span> <span class="n">voice_options</span><span class="p">,</span> <span class="n">text_options</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">local_options</span><span class="p">[</span><span class="n">selected</span><span class="p">]</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_run_text_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">:</span> <span class="n">Agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">agent</span><span class="o">.</span><span class="n">model</span><span class="p">:</span>
+            <span class="c1"># Use the cheaper mini model rather than the default GPT-4o</span>
+            <span class="n">agent</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">DEFAULT_GPT_MODEL</span>
+        <span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="p">()</span>
+        <span class="n">sqlite_session</span> <span class="o">=</span> <span class="n">SQLiteSession</span><span class="p">(</span><span class="n">session_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_unique_id</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">talk_first</span><span class="p">:</span>
+            <span class="c1"># The agent is expected to speak first. E.g. answering a phone call</span>
+            <span class="n">result</span><span class="p">:</span> <span class="n">RunResult</span> <span class="o">=</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+                    <span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span>
+                    <span class="n">session</span><span class="o">=</span><span class="n">sqlite_session</span><span class="p">,</span>
+                    <span class="nb">input</span><span class="o">=</span><span class="s2">&quot;New conversation, greet the user.&quot;</span>
+            <span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;AI:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">final_output</span><span class="p">)</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">final_output</span><span class="p">)</span>
+        <span class="k">async</span> <span class="k">for</span> <span class="n">user_input</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_stream</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;User:&quot;</span><span class="p">,</span> <span class="n">user_input</span><span class="p">)</span>
+            <span class="n">result</span><span class="p">:</span> <span class="n">RunResult</span> <span class="o">=</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+                    <span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span>
+                    <span class="n">session</span><span class="o">=</span><span class="n">sqlite_session</span><span class="p">,</span>
+                    <span class="nb">input</span><span class="o">=</span><span class="n">user_input</span>
+            <span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;AI:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">final_output</span><span class="p">)</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">final_output</span><span class="p">)</span></div>
+
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">Asteramisk</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../intro.html">Introduction to Asteramisk</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Darryl Martin.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -6,6 +6,11 @@ API reference
         :undoc-members:
         :show-inheritance:
 
+.. automodule:: asteramisk.ui.ui
+        :members:
+        :undoc-members:
+        :show-inheritance:
+
 .. automodule:: asteramisk.ui.voice_ui
         :members:
         :undoc-members:
