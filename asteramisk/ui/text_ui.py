@@ -26,6 +26,14 @@ class TextUI(UI):
     @property
     def _unique_id(self):
         return self._recipient_number
+
+    @property
+    def remote_number(self):
+        return self._recipient_number
+
+    @property
+    def remote_name(self):
+        return ""
     
     async def answer(self):
         """ \"Answer\" the call. Mostly for compatibility with other UIs. Connects to the broker. """

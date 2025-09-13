@@ -31,9 +31,13 @@ class Server(AsyncClass):
         async def message_handler(ui: TextUI):
             await ui.say("Hello, world!")
 
-        server = await Server.create()
-        await server.register_extension("1234", call_handler=call_handler, message_handler=message_handler)
-        await server.serve_forever()
+        async def main():
+            server: Server = await Server.create()
+            await server.register_extension("1234", call_handler=call_handler, message_handler=message_handler)
+            await server.serve_forever()
+
+        if __name__ == "__main__":
+            asyncio.run(main())
     """
     async def __create__(self, stasis_app=None):
         self.host = config.AGI_SERVER_HOST

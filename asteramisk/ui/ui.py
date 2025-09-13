@@ -35,6 +35,21 @@ class UI(AsyncClass):
     def _unique_id(self):
         raise NotImplementedError
 
+    @property
+    def remote_number(self):
+        """
+        The phone number of the other end of the call
+        """
+        raise NotImplementedError
+
+    @property
+    def remote_name(self):
+        """
+        The name (CALLERID name if available) of the other end of the call
+        Not generally available for text UIs
+        """
+        raise NotImplementedError
+
     async def answer(self):
         """
         Answer the call or text message conversation

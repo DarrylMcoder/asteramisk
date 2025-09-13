@@ -66,6 +66,20 @@ class VoiceUI(UI):
     def _unique_id(self):
         return self.channel.json["name"]
 
+    @property
+    def remote_number(self):
+        """
+        The phone number of the other end of the call
+        """
+        return self.channel.json["caller"]["number"]
+
+    @property
+    def remote_name(self):
+        """
+        The name (CALLERID name if available) of the other end of the call
+        """
+        return self.channel.json["caller"]["name"]
+
     async def answer(self):
         """ Answers the call """
         logger.debug("VoiceUI.answer")
