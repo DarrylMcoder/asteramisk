@@ -18,11 +18,13 @@ setup(
     packages=find_packages(),
     python_requires='>=3.6',
     install_requires=[
+        'aioari @ git+https://github.com/M-o-a-T/aioari.git@f892ae7e3ea0832e8a4728383135008cb58a792f',
         'aiofiles==24.1.0',
         'aiolimiter==1.2.1',
         'google-cloud-speech==2.33.0',
         'google-cloud-texttospeech==2.27.0',
         'gTTS==2.5.4',
+        'openai-agents==0.2.9',
         'panoramisk==1.4',
         'pydub==0.25.1',
         'setuptools'
