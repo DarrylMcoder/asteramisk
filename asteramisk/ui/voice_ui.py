@@ -85,8 +85,10 @@ class VoiceUI(UI):
         """
         The phone number of our end of the call
         """
-        extension = (await channel.getChannelVar(variable="EXTEN"))['value']
-        return extension
+        try:
+            return self.channel.json["dialplan"]["exten"]
+        except KeyError:
+            return ""
 
     async def answer(self):
         """ Answers the call """
