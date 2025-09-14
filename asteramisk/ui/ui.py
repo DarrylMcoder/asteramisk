@@ -50,6 +50,13 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
+    @property
+    def local_number(self):
+        """
+        The phone number of our end of the call
+        """
+        raise NotImplementedError
+
     async def answer(self):
         """
         Answer the call or text message conversation
@@ -215,9 +222,55 @@ class UI(AsyncClass):
             selected = await self.gather(text, num_digits)
         elif self.ui_type == self.UIType.TEXT:
             selected = await self.prompt(text)
+        selected = str(selected).strip()
         if selected not in local_options:
             return await self.select("That option is not available, please try again", options, voice_options, text_options)
         return local_options[selected]
+
+    async def choose(self, text, options: list[Any] = None, voice_options: list[Any] = None, text_options: list[Any] = None):
+        """
+        Present a list of choices to the user
+        Returns the selected option
+        You can use any type of object as an option, but of course it will be nicer if they have sensible string representations
+        Options are automatically converted to strings and are presented as follows:
+        For voice UIs:
+            For "option_1", press 1.
+            For "option_2", press 2.
+        For text UIs:
+            1. "option_1"
+            2. "option_2"
+            Reply with the number of the option you want.
+        :param text: Text to prompt the user.
+        :param options: List of options, like [item_1, item_2, ...]
+        :param voice_options: Same as options, but used only in voice UIs
+        :param text_options: Same as options, but used only in text UIs
+        :return: Selected option
+        """
+        if options and (voice_options or text_options):
+            logger.warning("Both options and voice/text options provided. This is rather ambiguous. Using options.")
+        if options:
+            local_options = options
+        elif voice_options or text_options:
+            if voice_options and self.ui_type == self.UIType.VOICE:
+                local_options = voice_options
+            elif text_options and self.ui_type == self.UIType.TEXT:
+                local_options = text_options
+            else:
+                raise ValueError("No options provided for current UI type")
+        else:
+            raise ValueError("No options provided")
+        # Make the prompt string
+        if self.ui_type == self.UIType.VOICE:
+            prompt = "".join([f"For {option}, press {i+1}. " for i, option in enumerate(local_options)])
+        elif self.ui_type == self.UIType.TEXT:
+            prompt = "Choose one of the following options:\n"
+            prompt += "\n".join([f"{i+1}. {option}" for i, option in enumerate(local_options)])
+            prompt += "\nReply with the number of the option you want."
+        # Make the options dictionary
+        final_options = {str(i+1): option for i, option in enumerate(local_options)}
+        # Prompt the user to select an option
+        selected = await self.select(prompt, final_options)
+        return selected
 
     async def _run_text_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
         if model is None and not agent.model:

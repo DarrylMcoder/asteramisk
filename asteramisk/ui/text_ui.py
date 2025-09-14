@@ -34,6 +34,10 @@ class TextUI(UI):
     @property
     def remote_name(self):
         return ""
+
+    @property
+    def local_number(self):
+        return self._our_callerid_number
     
     async def answer(self):
         """ \"Answer\" the call. Mostly for compatibility with other UIs. Connects to the broker. """

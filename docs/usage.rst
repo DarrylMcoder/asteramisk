@@ -6,7 +6,7 @@ To create a server, import the ``Server`` class from ``asteramisk.server`` and c
 You can then register extensions with the server using the ``register_extension`` method.
 If your application should be accessible on more than one phone number, simply repeat the ``register_extension`` call for each number.
 Your call and text message handlers should be async functions that accept a ``UI`` object as a parameter.
-Each call to a handler will be handled by a separate coroutine.
+Each call to a handler will be handled by a separate asyncio task so that multiple calls can be handled concurrently.
 
 .. code-block:: python
 

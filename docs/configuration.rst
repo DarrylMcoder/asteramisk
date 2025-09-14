@@ -1,14 +1,14 @@
 Configuration
 -------------
 First, you need to configure Asterisk.
-You can find example configuration files in `example_configs/`.
-You should be able to copy the `example_configs` directory contents directly into `/etc/asterisk/`.
+You can find example configuration files in ``example_configs/``.
+You should be able to copy the ``example_configs`` directory contents directly into ``/etc/asterisk/``.
 You need to enable the Asterisk ARI interface and the Asterisk AMI interface.
 
 AMI configuration
 *****************
 Make sure the AMI interface is enabled in Asterisk.
-Open the file `/etc/asterisk/manager.conf` and verify that the following lines are present:
+Open the file ``/etc/asterisk/manager.conf`` and verify that the following lines are present:
 
 .. code-block:: ini
 
@@ -17,7 +17,7 @@ Open the file `/etc/asterisk/manager.conf` and verify that the following lines a
         port = 5038
         bindaddr = 0.0.0.0
 
-In `/etc/asterisk/manager.d/`, create a file named `yourusername.conf` and add the following lines:
+In ``/etc/asterisk/manager.d/``, create a file named ``yourusername.conf`` and add the following lines:
 
 .. code-block:: ini
 
@@ -26,14 +26,14 @@ In `/etc/asterisk/manager.d/`, create a file named `yourusername.conf` and add t
         read = all
         write = all
 
-This will enable the AMI interface for the user `yourusername` with password `yourpassword`.
+This will enable the AMI interface for the user ``yourusername`` with password ``yourpassword``.
 You can then configure Asteramisk to use this user when connecting to Asterisk AMI.
 
 ARI configuration
 *****************
 Make sure the ARI interface is enabled in Asterisk.
 This is a little different from the AMI interface, but not any harder.
-Open the file `/etc/asterisk/ari.conf` and verify that the following lines are present:
+Open the file ``/etc/asterisk/ari.conf`` and verify that the following lines are present:
 
 .. code-block:: ini
 
@@ -50,9 +50,9 @@ In the same file, add the following lines:
         read_only=no
         password=youraripassword
 
-This will enable the ARI interface for the user `yourariusername` with password `youraripassword`.
+This will enable the ARI interface for the user ``yourariusername`` with password ``youraripassword``.
 
-Since the Rest API depends on Asterisk's built-in mini-http server, you also need to make sure it is enabled in `/etc/asterisk/http.conf`:
+Since the Rest API depends on Asterisk's built-in mini-http server, you also need to make sure it is enabled in ``/etc/asterisk/http.conf``:
 
 .. code-block:: ini
 
@@ -68,9 +68,9 @@ Since the Rest API depends on Asterisk's built-in mini-http server, you also nee
 Asteramisk configuration
 ************************
 Next, you need to configure Asteramisk to connect to your Asterisk PBX.
-This is done by importing the `config` module and setting the following variables.
+This is done by importing the ``config`` module and setting the following variables.
 Some of these variables are optional, but you need to set the ones that are required to make Asteramisk work.
-See the `config` module for a complete list of configuration variables.
+See the ``config`` module for a complete list of configuration variables.
 
 .. code-block:: python
 

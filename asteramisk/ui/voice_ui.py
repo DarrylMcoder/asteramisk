@@ -80,6 +80,14 @@ class VoiceUI(UI):
         """
         return self.channel.json["caller"]["name"]
 
+    @property
+    def local_number(self):
+        """
+        The phone number of our end of the call
+        """
+        extension = (await channel.getChannelVar(variable="EXTEN"))['value']
+        return extension
+
     async def answer(self):
         """ Answers the call """
         logger.debug("VoiceUI.answer")

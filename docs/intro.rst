@@ -7,7 +7,7 @@ Introduction to Asteramisk
 I started working on this project about September or October 2024.
 It started as an attempt to build a telephone interface for a ride sharing system I was working on.
 While I was at it, I periodically gave up on the ride sharing project and started a simpler telephone project.
-projects that I have been working on use the same core code for interaction with Asterisk PBX.
+Since all of the projects that I have been working on use the same core code for interaction with Asterisk PBX,
 I decided to clean it all up and put it into a library for my own use and for anyone else who might find it useful.
 
 ``Asteramisk`` is based on, or built on top of, the [panoramisk](https://github.com/gawel/panoramisk) library.
