@@ -81,6 +81,7 @@ class TTSEngine(AsyncSingleton):
         """
         Asynchronously convert text to audio and stream it to the given stream
         """
+        logger.debug("TTSEngine.tts: converting text to audio")
         if self.exists_in_cache(text, voice):
             audio = await self.get_from_cache(text, voice)
         elif not voice or not config.GOOGLE_APPLICATION_CREDENTIALS:
@@ -89,6 +90,8 @@ class TTSEngine(AsyncSingleton):
             audio = await self._premium_tts(text, voice)
         if save_to_cache:
             self.cache_tasks.append(asyncio.create_task(self.save_to_cache(audio, text, voice)))
+        if not audio or len(audio) == 0:
+            logger.error("TTSEngine.tts: no audio returned")
         return audio
 
     async def tts_to_stream(self, text, stream, voice=None):
@@ -112,7 +115,6 @@ class TTSEngine(AsyncSingleton):
                 f.setnchannels(channels)
                 f.setsampwidth(sample_width)
                 f.setframerate(sample_rate)
-                print("Audio type: ", type(audio))
                 f.writeframes(audio)
             return f"{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{filename}"
         return await asyncio.to_thread(_save_to_wav)

@@ -36,7 +36,7 @@ class Communicator(AsyncClass):
             await communicator.make_call(recipient_number="1234567890")
             await communicator.send_message(recipient_number="1234567890", message="Hello world!")
     """
-    async def __create__(self, callerid_number=config.SYSTEM_PHONE_NUMBER, callerid_name=config.SYSTEM_NAME):
+    async def __create__(self, callerid_number=None, callerid_name=None):
         """
         Initializes the Communicator.
         :param callerid_number: The number to use for the caller ID.
@@ -73,7 +73,7 @@ class Communicator(AsyncClass):
     async def make_call(self,
                         recipient_number=None,
                         channel=None,
-                        callerid_number=None,
+                        callerid_number=None, # Callerids are None for a reason, so we can use the Communicator instance defaults. See further down
                         callerid_name=None) -> asteramisk.ui.VoiceUI:
         """ 
         Makes a call to the recipient and returns a VoiceUI object.
@@ -91,8 +91,8 @@ class Communicator(AsyncClass):
         if recipient_number and channel:
             raise ValueError("Cannot provide both recipient_number and channel")
 
-        callerid_number = callerid_number or self._callerid_number
-        callerid_name = callerid_name or self._callerid_name
+        callerid_number = callerid_number or self._callerid_number or config.SYSTEM_PHONE_NUMBER
+        callerid_name = callerid_name or self._callerid_name or config.SYSTEM_NAME
 
         if recipient_number:
             channel = f"PJSIP/{recipient_number}@{config.ASTERISK_PSTN_ENDPOINT}"
@@ -102,9 +102,9 @@ class Communicator(AsyncClass):
             callerid_number = config.SYSTEM_PHONE_NUMBER
 
         if not callerid_name:
-            logger.warning("Caller ID name is not set. No caller ID name will be used.")
+            raise asteramisk.exceptions.ConfigurationException("Caller ID name is not set. This will not work unless this is a call to a local extension on our system.")
         if not callerid_number:
-            logger.warning("Caller ID number is not set. This will not work unless this is a call to a local extension on our system.")
+            raise asteramisk.exceptions.ConfigurationException("Caller ID number is not set. This will not work unless this is a call to a local extension on our system.")
 
         logger.info(f"Making call to {recipient_number} on channel {channel}")
 
@@ -126,7 +126,7 @@ class Communicator(AsyncClass):
                 raise asteramisk.exceptions.CallFailedException(f"Failed to make call to {recipient_number}")
 
         # Get the channel
-        if not response[1].uniqueid:
+        if not hasattr(response[1], "uniqueid") or not response[1].uniqueid:
             raise asteramisk.exceptions.CallFailedException(f"Failed to get channel for call to {recipient_number or channel}")
         channel_id = response[1].uniqueid
 
@@ -142,42 +142,41 @@ class Communicator(AsyncClass):
         ari_channel = await self._ari_client.channels.get(channelId=channel_id)
 
         ui = await asteramisk.ui.VoiceUI.create(ari_channel)
+        # I know this seems strange, but audio simply won't play via audio socket until we play a sound file like this
+        # This is only a problem on outbound calls
+        await ui.channel.play(media="sound:ascending-2tone")
         return ui
 
     async def make_text(self,
-                        recipient_number=None,
-                        callerid_number=config.SYSTEM_PHONE_NUMBER,
-                        callerid_name=config.SYSTEM_NAME) -> asteramisk.ui.TextUI:
+                        recipient_number, # No reason to make this optional
+                        callerid_number=None,
+                        callerid_name=None) -> asteramisk.ui.TextUI:
         """
         Starts a new messaging conversation with the recipient.
         :param recipient_number: The number to message.
-        :type recipient_number: str
         :param callerid_number: The number to use for the caller ID.
-        :type callerid_number: str
         :param callerid_name: The name to use for the caller ID.
-        :type callerid_name: str
         :return: An asteramisk.ui.TextUI object.
-        :rtype: asteramisk.ui.TextUI
+        :raises ValueError: If the recipient_number is not provided
         """
-        return asteramisk.ui.TextUI(recipient_number, callerid_number=callerid_number, callerid_name=callerid_name)
+        callerid_number = callerid_number or self._callerid_number or config.SYSTEM_PHONE_NUMBER
+        callerid_name = callerid_name or self._callerid_name or config.SYSTEM_NAME
+
+        return await asteramisk.ui.TextUI.create(recipient_number, callerid_number=callerid_number, callerid_name=callerid_name)
 
     async def make_conversation(self,
                                 recipient_number=None,
-                                callerid_number=config.SYSTEM_PHONE_NUMBER,
-                                callerid_name=config.SYSTEM_NAME,
+                                callerid_number=None,
+                                callerid_name=None,
                                 contact_method=None) -> Union[asteramisk.ui.VoiceUI, asteramisk.ui.TextUI]:
         """
         Starts a new messaging conversation with the recipient.
         :param recipient_number: The number to contact.
-        :type recipient_number: str
         :param callerid_number: The number to use for the caller ID.
-        :type callerid_number: str
         :param callerid_name: The name to use for the caller ID.
-        :type callerid_name: str
         :param contact_method: The contact method to use. Either "call" or "text"
-        :type contact_method: str
         :return: An asteramisk.ui.VoiceUI or asteramisk.ui.TextUI object.
-        :rtype: Union[asteramisk.ui.VoiceUI, asteramisk.ui.TextUI]
+        :raises ValueError: If the contact method is not "call" or "text"
         """
         if contact_method == "call":
             return await self.make_call(recipient_number, callerid_number=callerid_number, callerid_name=callerid_name)

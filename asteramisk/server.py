@@ -16,6 +16,9 @@ from asteramisk.internal.audiosocket import AudiosocketAsync
 import logging
 logger = logging.getLogger(__name__)
 
+def raise_not_configured(var):
+    raise Exception(f"{var} is not configured. Please configure it by setting config.{var} or by setting the environment variable {var}")
+
 class Server(AsyncClass):
     """
     The main server class
@@ -40,7 +43,31 @@ class Server(AsyncClass):
             asyncio.run(main())
     """
     async def __create__(self, stasis_app=None):
-        self.host = config.AGI_SERVER_HOST
+        # Raise an exception if required variables are not configured
+        if not config.ASTERISK_HOST:
+            raise_not_configured("ASTERISK_HOST")
+        if not config.ASTERAMISK_HOST:
+            raise_not_configured("ASTERAMISK_HOST")
+        if not config.ASTERISK_AMI_PORT:
+            raise_not_configured("ASTERISK_AMI_PORT")
+        if not config.ASTERISK_AMI_USER:
+            raise_not_configured("ASTERISK_AMI_USER")
+        if not config.ASTERISK_AMI_PASS:
+            raise_not_configured("ASTERISK_AMI_PASS")
+
+        if not config.ASTERISK_ARI_PORT:
+            raise_not_configured("ASTERISK_ARI_PORT")
+        if not config.ASTERISK_ARI_USER:
+            raise_not_configured("ASTERISK_ARI_USER")
+        if not config.ASTERISK_ARI_PASS:
+            raise_not_configured("ASTERISK_ARI_PASS")
+
+        if not config.AGI_SERVER_PORT:
+            raise_not_configured("AGI_SERVER_PORT")
+        if not config.AGI_SERVER_BINDADDR:
+            config.AGI_SERVER_BINDADDR = '0.0.0.0'
+
+        self.host = config.ASTERAMISK_HOST
         self.bindaddr = config.AGI_SERVER_BINDADDR
         self.port = config.AGI_SERVER_PORT
         self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
@@ -65,6 +92,11 @@ class Server(AsyncClass):
         :param call_handler: The function to call when the phone number is called. Must be a coroutine. Will be passed an instance of asteramisk.ui.VoiceUI
         :param message_handler: The function to call when a message is sent to the phone number. Must be a coroutine. Will be passed an instance of asteramisk.ui.TextUI
         """
+
+        # Convert to string
+        extension = str(extension)
+
+        # Raise an exception if the extension is already registered
         if extension in self.handlers:
             raise Exception(f"Extension {extension} is already registered")
 
@@ -187,3 +219,19 @@ class Server(AsyncClass):
             ui = await TextUI.create(phone_number)
             _, message_handler = self.handlers[extension]
             await message_handler(ui)
+
+    async def call_handler(self, ui: VoiceUI):
+        """
+        This is the default call handler.
+        It does nothing.
+        Override this method to handle calls or pass call_handler to the constructor
+        """
+        pass
+
+    async def message_handler(self, ui: TextUI):
+        """
+        This is the default message handler.
+        It does nothing.
+        Override this method to handle messages or pass message_handler to the constructor
+        """
+        pass

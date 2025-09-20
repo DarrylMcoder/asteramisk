@@ -1,7 +1,9 @@
+import asyncio
 from typing import Any
-from agents import Agent, SQLiteSession, Runner, RunResult
+from agents import Agent, SQLiteSession, Runner, RunResult, TContext
 
 from asteramisk.config import config
+from asteramisk.exceptions import GoBackException
 from asteramisk.internal.async_class import AsyncClass
 
 import logging
@@ -112,7 +114,7 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
-    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None) -> None:
+    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
         """
         Connect to an OpenAI agent. Either an agents.Agent or an agents.realtime.RealtimeAgent
         Example usage:
@@ -143,6 +145,7 @@ class UI(AsyncClass):
         :param talk_first: Whether to wait for the agent to speak first
         :param model: Model to use, defaults to the OpenAI default
         :param voice: Voice to use, defaults to the OpenAI default
+        :param context: An arbitrary mutable object to pass to the agent. it will be available in any tool calls and event hooks
         :return: None
         """
         raise NotImplementedError
@@ -153,6 +156,21 @@ class UI(AsyncClass):
         :return: None
         """
         raise NotImplementedError
+
+    def has_agent(self) -> bool:
+        """
+        Check if an OpenAI agent is connected
+        :return: True if an OpenAI agent is connected, False otherwise
+        """
+        return hasattr(self, "_agent_task") and self._agent_task is not None
+
+    async def wait_for_agent(self) -> None:
+        """
+        Wait for any connected OpenAI agent to finish
+        :return: None
+        """
+        if self.has_agent():
+            await self._agent_task
 
     async def menu(self, text, callbacks: dict[str, callable] = None, voice_callbacks: dict[str, callable] = None, text_callbacks: dict[str, callable] = None):
         """
@@ -189,11 +207,27 @@ class UI(AsyncClass):
             selected = await self.gather(text, num_digits)
         elif self.ui_type == self.UIType.TEXT:
             selected = await self.prompt(text)
+        selected = str(selected).strip()
         if selected not in local_callbacks:
-            return await self.menu("That option is not available, please try again", callbacks, voice_callbacks, text_callbacks)
-        return await local_callbacks[selected]()
+            if selected:
+                error_text = f"{selected} is not a valid option, please try again."
+            else:
+                error_text = "You did not select an option, please try again."
+            return await self.menu(f"{error_text if error_text not in text else ''}{text}", callbacks, voice_callbacks, text_callbacks)
 
-    async def select(self, text, options: dict[str, Any], voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None):
+        # Allow for callbacks with arguments
+        if isinstance(local_callbacks[selected], tuple):
+            callback, args = local_callbacks[selected]
+        else:
+            callback = local_callbacks[selected]
+            args = ()
+        try:
+            return await callback(*args)
+        except GoBackException:
+            # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
+            return await self.menu(text, callbacks, voice_callbacks, text_callbacks)
+
+    async def select(self, text, options: dict[str, Any] = None, voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None):
         """
         Present a list of choices to the user
         :param text: Text to prompt the user, must contain the menu
@@ -224,7 +258,11 @@ class UI(AsyncClass):
             selected = await self.prompt(text)
         selected = str(selected).strip()
         if selected not in local_options:
-            return await self.select("That option is not available, please try again", options, voice_options, text_options)
+            if selected:
+                error_text = f"{selected} is not a valid option, please try again. "
+            else:
+                error_text = "You did not select an option, please try again. "
+            return await self.select(f"{error_text if error_text not in text else ''}{text}", options, voice_options, text_options)
         return local_options[selected]
 
     async def choose(self, text, options: list[Any] = None, voice_options: list[Any] = None, text_options: list[Any] = None):
@@ -273,27 +311,30 @@ class UI(AsyncClass):
         return selected
 
     async def _run_text_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
-        if model is None and not agent.model:
-            # Use the cheaper mini model rather than the default GPT-4o
-            agent.model = config.DEFAULT_GPT_MODEL
-        runner = Runner()
-        sqlite_session = SQLiteSession(session_id=self._unique_id)
-        if talk_first:
-            # The agent is expected to speak first. E.g. answering a phone call
-            result: RunResult = await runner.run(
-                    starting_agent=agent,
-                    session=sqlite_session,
-                    input="New conversation, greet the user."
-            )
-            print("AI:", result.final_output)
-            await self.say(result.final_output)
-        async for user_input in self.input_stream():
-            print("User:", user_input)
-            result: RunResult = await runner.run(
-                    starting_agent=agent,
-                    session=sqlite_session,
-                    input=user_input
-            )
-            print("AI:", result.final_output)
-            await self.say(result.final_output)
+        try:
+            if model is None and not agent.model:
+                # Use the cheaper mini model rather than the default GPT-4o
+                agent.model = config.DEFAULT_GPT_MODEL
+            runner = Runner()
+            sqlite_session = SQLiteSession(session_id=self._unique_id)
+            if talk_first:
+                # The agent is expected to speak first. E.g. answering a phone call
+                result: RunResult = await runner.run(
+                        starting_agent=agent,
+                        session=sqlite_session,
+                        input="New conversation, greet the user."
+                )
+                print("AI:", result.final_output)
+                await self.say(result.final_output)
+            async for user_input in self.input_stream():
+                print("User:", user_input)
+                result: RunResult = await runner.run(
+                        starting_agent=agent,
+                        session=sqlite_session,
+                        input=user_input
+                )
+                print("AI:", result.final_output)
+                await self.say(result.final_output)
+        finally:
+            await sqlite_session.close()
 

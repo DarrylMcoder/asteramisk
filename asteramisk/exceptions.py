@@ -14,6 +14,10 @@ class CallFailedException(AsteramiskException):
     """ Raised when an outbound call fails """
     pass
 
+class ConfigurationException(AsteramiskException):
+    """ Raised when something is incorrectly configured. E.g. a required configuration variable is missing """
+    pass
+
 class HangupException(AsteramiskException):
     """ Raised when a method is called on an already hung up UI. Can be used to detect remote hangups """
     pass

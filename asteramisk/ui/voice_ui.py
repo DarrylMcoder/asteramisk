@@ -4,7 +4,7 @@ import aioari
 import asyncio
 import websockets
 from contextlib import suppress
-from agents import Agent
+from agents import Agent, TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.config import config
@@ -48,11 +48,11 @@ class VoiceUI(UI):
         await self.bridge.addChannel(channel=self.external_media_channel.id)
         await self.bridge.addChannel(channel=self.channel.id)
         self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
-        self.channel.on_event('StasisEnd', self._on_channel_stasis_end)
-        self.channel.on_event('ChannelDtmfReceived', self._on_channel_dtmf_received)
+        self.channel.on_event('StasisEnd', lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
+        self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
         self.tts_engine: TTSEngine = await TTSEngine.create()
         self.transcribe_engine: TranscribeEngine = await TranscribeEngine.create()
-        self.dtmf_queue = asyncio.Queue(1)
+        self.dtmf_queue = asyncio.Queue(10)
         self.dtmf_callbacks = {}
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
@@ -97,34 +97,24 @@ class VoiceUI(UI):
         self.answered = True
         self.is_active = True
 
-    async def hangup(self):
+    async def hangup(self, drain_first=False):
+        """
+        Hangs up the call.
+        :param drain_first: If True, wait for the audio to finish playing before hanging up
+        """
         logger.debug("VoiceUI.hangup")
-        if hasattr(self, "out_media_task") and self.out_media_task is not None:
-            self.out_media_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self.out_media_task
-            self.out_media_task = None
-        if hasattr(self, "_agent_task") and self._agent_task is not None:
-            self._agent_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._agent_task
-            self._agent_task = None
-        if hasattr(self, "_audio_task") and self._audio_task is not None:
-            self._audio_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._audio_task
-            self._audio_task = None
+        if drain_first:
+            # Wait for the audio to finish playing
+            await self._done_speaking()
 
-        await self.audconn.close()
-        await self.tts_engine.close()
-        # Clean up ARI resources
-        with suppress(aiohttp.web_exceptions.HTTPNotFound):
-            await self.bridge.destroy()
-        with suppress(aiohttp.web_exceptions.HTTPNotFound):
-            await self.external_media_channel.hangup()
-        with suppress(aiohttp.web_exceptions.HTTPNotFound):
-            await self.channel.hangup()
-        self.is_active = False
+        # Stop the agent if connected
+        await self.disconnect_openai_agent()
+
+        # Cancel the main task, which handles any cleanup in its finally block
+        self.out_media_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self.out_media_task
+        self.out_media_task = None
 
     async def say(self, text) -> None:
         """
@@ -150,20 +140,15 @@ class VoiceUI(UI):
         :return: The user's input
         """
         logger.debug(f"VoiceUI.prompt: {text}")
-        # Ensure the call is answered, since we can't hear anything otherwise
-        await self._ensure_answered()
-
-        if not self.is_active:
-            raise HangupException("UI is inactive, cannot prompt(). User probably hung up")
-
-        # Wait till the queue is empty
-        await self.text_out_queue.join()
-        # Also wait till the last item in the queue has finished playing
-        await self.audconn.drain_send_queue()
-        await self.text_out_queue.put(text)
+        await self._done_speaking()
+        await self.say(text)
         transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn)
+        logger.debug(f"VoiceUI.prompt transcription: {transcription}")
         # Immediately stop audio playback when we get the transcription
         await self.audconn.clear_send_queue()
+        if not transcription:
+            await self.say("I didn't get that. Please try again.")
+            return await self.prompt(text)
         return transcription
 
     async def gather(self, text, num_digits) -> str:
@@ -172,12 +157,8 @@ class VoiceUI(UI):
         :param text: Text to prompt the user
         :return: The user's input
         """
-        await self._ensure_answered()
-        if not self.is_active:
-            raise HangupException("UI is inactive, cannot gather(). User probably hung up")
-        await self.text_out_queue.join()
-        await self.audconn.drain_send_queue()
-        await self.text_out_queue.put(text)
+        await self._done_speaking()
+        await self.say(text)
         return await self._get_dtmf(num_digits=num_digits)
 
     async def ask_yes_no(self, text) -> bool:
@@ -186,20 +167,31 @@ class VoiceUI(UI):
         :param text: Text to prompt the user
         :return: True if the user answers yes or False if the user answers no
         """
-        prompt = f"{text} Press 1 for yes or 2 for no"
-        digits = await self.gather(prompt, 1)
+        prompt = "Press 1 for yes or 2 for no"
+        digits = await self.gather(f"{text} {prompt if prompt not in text else ''}", 1)
+        if not digits:
+            error_text = "You did not press any digit. Please try again"
+            await self.say(error_text)
+            return await self.ask_yes_no(text)
+        if digits not in ['1', '2']:
+            error_text = "Your input was invalid. Please try again. "
+            await self.say(error_text)
+            return await self.ask_yes_no(text)
         return digits == '1'
 
     async def input_stream(self):
         """
         Returns an async generator that yields transcriptions as they come
         """
-        async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
-            # Immediately stop audio playback when we get a new transcription
-            await self.audconn.clear_send_queue()
-            yield transcript
+        try:
+            async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
+                # Immediately stop audio playback when we get a new transcription
+                await self.audconn.clear_send_queue()
+                yield transcript
+        except GeneratorExit:
+            pass
 
-    async def connect_openai_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None):
+    async def connect_openai_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
         """
         Connects the voice UI to an OpenAI agent
         Example usage:
@@ -228,57 +220,74 @@ class VoiceUI(UI):
         async def _run_agent_task():
             logger.debug("VoiceUI.connect_openai_agent._run_agent_task")
             nonlocal model # We might change the model so we need to declare it a nonlocal
-            if isinstance(agent, Agent):
-                await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
-            elif isinstance(agent, RealtimeAgent):
-                await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
-                if model is None:
-                    # Use the cheaper mini model rather than the default GPT-4o
-                    model = config.DEFAULT_REALTIME_GPT_MODEL
-                runner = RealtimeRunner(starting_agent=agent, config={
-                    "model_settings": {
-                        "model_name": model,
-                        "modalities": ["text", "audio"],
-                        "voice": voice
-                    }
-                })
-                async with await runner.run() as session:
-                    if talk_first:
-                        # The agent is expected to speak first. E.g. answering a phone call
-                        with suppress(websockets.exceptions.ConnectionClosed):
-                            # Clean up should be handled elsewhere so just swallow the exception
-                            await session.send_message("New call, greet the caller.")
-                    async def dtmf_event_handler(objs, event):
-                        with suppress(websockets.exceptions.ConnectionClosed):
-                            await session.send_message(event['digit'])
-                    self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
-                    async def audio_loop():
-                        # Directly pass audio from the UI to the OpenAI session
-                        while self.is_active:
-                            logger.debug("audio_loop: Waiting for audio")
-                            audio = await self.audconn.read()
-                            try:
-                                await session.send_audio(audio)
-                            except websockets.exceptions.ConnectionClosed:
-                                break
-                    self._audio_task = asyncio.create_task(audio_loop())
-                    async for event in session:
-                        logger.debug(event.type)
-                        if event.type == "audio":
-                            audio = event.audio.data
-                            await self.audconn.write(audio)
-                        elif event.type == "audio_interrupted":
-                            # Audio was interrupted, stop speaking and listen
-                            await self.audconn.clear_send_queue()
-                        elif event.type == "raw_model_event":
-                            logger.debug(f"  {event.data.type}")
-                            if event.data.type == "raw_server_event":
-                                logger.debug(f"     {event.data.data['type']}")
-                        elif event.type == "error":
-                            logger.error(f"OpenAI session error: {event}")
-            else:
-                raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
+            try:
+                if isinstance(agent, Agent):
+                    await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
+                elif isinstance(agent, RealtimeAgent):
+                    await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
+                    if model is None:
+                        # Use the cheaper mini model rather than the default GPT-4o
+                        model = config.DEFAULT_REALTIME_GPT_MODEL
+                    runner = RealtimeRunner(starting_agent=agent, config={
+                        "model_settings": {
+                            "model_name": model,
+                            "modalities": ["text", "audio"],
+                            "voice": voice
+                        }
+                    })
+                    async with await runner.run(context=context) as session:
+                        if talk_first:
+                            # The agent is expected to speak first. E.g. answering a phone call
+                            with suppress(websockets.exceptions.ConnectionClosed):
+                                # Clean up should be handled elsewhere so just swallow the exception
+                                await session.send_message("New call, greet the caller.")
+                        async def dtmf_event_handler(objs, event):
+                            with suppress(websockets.exceptions.ConnectionClosed, AssertionError):
+                                # AssertionError, not connected
+                                await session.send_message(event['digit'])
+                        self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
+                        async def audio_loop():
+                            # Directly pass audio from the UI to the OpenAI session
+                            while self.is_active:
+                                logger.debug("audio_loop: Waiting for audio")
+                                audio = await self.audconn.read()
+                                try:
+                                    await session.send_audio(audio)
+                                except websockets.exceptions.ConnectionClosed:
+                                    break
+                        self._audio_task = asyncio.create_task(audio_loop())
+                        async for event in session:
+                            logger.debug(event.type)
+                            if event.type == "audio":
+                                audio = event.audio.data
+                                await self.audconn.write(audio)
+                            elif event.type == "audio_interrupted":
+                                # Audio was interrupted, stop speaking and listen
+                                await self.audconn.clear_send_queue()
+                            elif event.type == "raw_model_event":
+                                logger.debug(f"  {event.data.type}")
+                                if event.data.type == "raw_server_event":
+                                    logger.debug(f"     {event.data.data['type']}")
+                            elif event.type == "error":
+                                logger.error(f"OpenAI session error: {event}")
+                else:
+                    raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
+            finally:
+                # Clean up agent resources
+                if hasattr(self, "_audio_task") and self._audio_task is not None:
+                    self._audio_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await self._audio_task
+                    self._audio_task = None
+                # Stop resampling which is only used for agents
+                await self.audconn.stop_resampling()
+        # end _run_agent_task
 
+        # Wait for any previously queued audio to finish before connecting
+        await self._done_speaking()
+        # Disconnect any previous agent
+        await self.disconnect_openai_agent()
+        # Run the agent in a separate task
         self._agent_task = asyncio.create_task(_run_agent_task())
         return self._agent_task
 
@@ -288,13 +297,9 @@ class VoiceUI(UI):
         Currently quite buggy so use with caution.
         Once connected, agents generally run until the conversation ends.
         """
-        await self.audconn.drain_send_queue()
-        await self.audconn.stop_resampling()
-        if hasattr(self, "_audio_task") and self._audio_task is not None:
-            self._audio_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._audio_task
-            self._audio_task = None
+        # Wait till the agent has finished speaking
+        await self._done_speaking()
+        # Disconnect the agent
         if hasattr(self, "_agent_task") and self._agent_task is not None:
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -304,10 +309,10 @@ class VoiceUI(UI):
     ### Voice UI specific methods ###
 
     async def control_say(self, text):
-        # Wait till all audio has finished playing
-        await self.audconn.drain_send_queue()
         # Speak text, allowing rewind and fast forward
         filename = await self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
+        # Since this doesn't actually use the queue, make sure this doesn't interfere with previously queued audio
+        await self._done_speaking()
         try:
             playback = await self.channel.play(media=f"sound:{filename}")
         except aiohttp.web_exceptions.HTTPNotFound as e:
@@ -335,6 +340,19 @@ class VoiceUI(UI):
         self.dtmf_callbacks["4"] = rewind
         self.dtmf_callbacks["5"] = pause_toggle
         self.dtmf_callbacks["6"] = forward
+        # The only way I know to wait for playback to finish is to poll until it no longer exists
+        while True:
+            # Sleep for 1 second, so we're not polling too often
+            await asyncio.sleep(1)
+            try:
+                await playback.get()
+            except aiohttp.web_exceptions.HTTPNotFound:
+                break
+
+        # When playback is done, remove the callbacks
+        del self.dtmf_callbacks["4"]
+        del self.dtmf_callbacks["5"]
+        del self.dtmf_callbacks["6"]
 
     ### Callbacks ###
 
@@ -353,6 +371,7 @@ class VoiceUI(UI):
         else:
             # Otherwise, put it in the queue to be received as user input
             await self.dtmf_queue.put(digit)
+            logger.debug(f"VoiceUI._on_channel_dtmf_received: {digit} added to queue")
 
     ### Private methods ###
 
@@ -361,38 +380,75 @@ class VoiceUI(UI):
             logger.warning("VoiceUI._ensure_answered: Call was not explicitly answered. Answering now...")
             await self.answer()
 
+    async def _done_speaking(self):
+        # Wait till every line of text has been sent to the player
+        await self.text_out_queue.join()
+        # Also wait till the last item in the queue has finished playing
+        await self.audconn.drain_send_queue()
+
     async def _clear_dtmf_queue(self):
         while True:
             try:
-                await self.dtmf_queue.get_nowait()
+                self.dtmf_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
     async def _get_dtmf(self, num_digits=None, timeout=2):
         # Clear stale data from the queue as it could have been there a long time already
         await self._clear_dtmf_queue()
+        async def _timer_task():
+            await self._done_speaking()
+            await asyncio.sleep(timeout)
+        timer_task = asyncio.create_task(_timer_task())
         digits = ""
         if num_digits:
             while len(digits) < num_digits:
                 try:
                     digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
+                    # Stop sending audio if we get a digit response
+                    await self.audconn.clear_send_queue()
                 except asyncio.TimeoutError:
-                    break
+                    # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
+                    if timer_task.done():
+                        logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
+                        await timer_task
+                        break
+
         else:
             while True:
                 try:
                     digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
+                    # Stop sending audio if we get a digit response
+                    await self.audconn.clear_send_queue()
                 except asyncio.TimeoutError:
-                    break
+                    # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
+                    if timer_task.done():
+                        logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
+                        await timer_task
+                        break
+
+        logger.debug(f"VoiceUI._get_dtmf: Got digits: {digits}")
         return digits
 
     async def _out_media_exchanger(self):
-        logger.debug("VoiceUI._out_media_exchanger")
-        while True:
-            text = await self.text_out_queue.get()
-            audio = await self.tts_engine.tts(text=text, voice=self.voice)
-            # Wait for the previous audio to finish playing, so that we don't get way out of sync
-            await self.audconn.drain_send_queue()
-            await self.audconn.write(audio)
-            self.text_out_queue.task_done()
-
+        try:
+            logger.debug("VoiceUI._out_media_exchanger")
+            while True:
+                text = await self.text_out_queue.get()
+                audio = await self.tts_engine.tts(text=text, voice=self.voice)
+                # Wait for the previous audio to finish playing, so that we don't get way out of sync
+                await self.audconn.drain_send_queue()
+                await self.audconn.write(audio)
+                self.text_out_queue.task_done()
+        finally:
+            logger.debug("VoiceUI._out_media_exchanger: Exiting")
+            await self.audconn.close()
+            await self.tts_engine.close()
+            # Clean up ARI resources
+            with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                await self.bridge.destroy()
+            with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                await self.external_media_channel.hangup()
+            with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                await self.channel.hangup()
+            self.is_active = False

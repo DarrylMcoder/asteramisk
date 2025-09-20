@@ -1,6 +1,6 @@
 import asyncio
-from agents import Agent
 from contextlib import suppress
+from agents import Agent, TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.ui import UI
@@ -89,11 +89,18 @@ class TextUI(UI):
         return 'yes' in response.lower()
 
     async def input_stream(self):
-        while self.is_active:
-            message = await self._broker.get_incoming_message(self._recipient_number)
-            yield message
+        """
+        Returns an async generator that yields incoming messages from the user
+        :return: An async generator that yields incoming messages from the user
+        """
+        try:
+            while self.is_active:
+                message = await self._broker.get_incoming_message(self._recipient_number)
+                yield message
+        except GeneratorExit:
+            pass
 
-    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None) -> None:
+    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
         """
         Connect this UI to an OpenAI agent
         This automates the passing of messages or audio between the UI and the OpenAI agent
@@ -123,47 +130,54 @@ class TextUI(UI):
         """
         async def _run_agent_task():
             nonlocal model # We might change the model so we need to declare it nonlocal
-            if isinstance(agent, Agent):
-                await self._run_text_agent(agent, talk_first, model)
-            elif isinstance(agent, RealtimeAgent):
-                if model is None:
-                    # Use the cheaper mini model rather than the default GPT-4o
-                    model = config.DEFAULT_REALTIME_GPT_MODEL
-                runner = RealtimeRunner(starting_agent=agent, config={
-                    "model_settings": {
-                        "model_name": model,
-                        "modalities": ["text"]
-                    }
-                })
-                async with await runner.run() as session:
-                    if talk_first:
-                        # The agent is expected to speak first.
-                        await session.send_message("New call, greet the caller.")
-                    async def message_loop():
-                        # Directly pass messages from the UI to the OpenAI session
-                        while self.is_active:
-                            logger.debug("message_loop: Waiting for message")
-                            message = await self._broker.get_incoming_message(self._recipient_number)
-                            await session.send_message(message)
-                    asyncio.create_task(message_loop())
-                    async for event in session:
-                        print(event.type)
-                        if event.type == "audio":
-                            pass
-                        elif event.type == "audio_interrupted":
-                            # Audio was interrupted, stop speaking and listen
-                            await self.audconn.clear_send_queue()
-                        elif event.type == "raw_model_event":
-                            print(" ", event.data.type)
-                            if event.data.type == "raw_server_event":
-                                print("     ", event.data.data["type"])
-                                if event.data.data["type"].count("rate") > 0:
-                                    print("         ", event)
-                        elif event.type == "error":
-                            logger.error(f"OpenAI session error: {event}")
+            try:
+                if isinstance(agent, Agent):
+                    await self._run_text_agent(agent, talk_first, model)
+                elif isinstance(agent, RealtimeAgent):
+                    if model is None:
+                        # Use the cheaper mini model rather than the default GPT-4o
+                        model = config.DEFAULT_REALTIME_GPT_MODEL
+                    runner = RealtimeRunner(starting_agent=agent, config={
+                        "model_settings": {
+                            "model_name": model,
+                            "modalities": ["text"]
+                        }
+                    })
+                    async with await runner.run(context=context) as session:
+                        if talk_first:
+                            # The agent is expected to speak first.
+                            await session.send_message("New call, greet the caller.")
+                        async def message_loop():
+                            # Directly pass messages from the UI to the OpenAI session
+                            while self.is_active:
+                                logger.debug("message_loop: Waiting for message")
+                                message = await self._broker.get_incoming_message(self._recipient_number)
+                                await session.send_message(message)
+                        self._message_task = asyncio.create_task(message_loop())
+                        async for event in session:
+                            print(event.type)
+                            if event.type == "audio":
+                                pass
+                            elif event.type == "audio_interrupted":
+                                # Audio was interrupted, stop speaking and listen
+                                await self.audconn.clear_send_queue()
+                            elif event.type == "raw_model_event":
+                                print(" ", event.data.type)
+                                if event.data.type == "raw_server_event":
+                                    print("     ", event.data.data["type"])
+                                    if event.data.data["type"].count("rate") > 0:
+                                        print("         ", event)
+                            elif event.type == "error":
+                                logger.error(f"OpenAI session error: {event}")
 
-            else:
-                raise ValueError(f"Unsupported agent type: {type(agent)}")
+                else:
+                    raise ValueError(f"Unsupported agent type: {type(agent)}")
+            finally:
+                # Clean up
+                if hasattr(self, "_message_task") and self._message_task is not None:
+                    self._message_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await self._message_task
 
         self._agent_task = asyncio.create_task(_run_agent_task())
         return self._agent_task
