@@ -27,7 +27,8 @@ setup(
         'openai-agents==0.2.9',
         'panoramisk==1.4',
         'pydub==0.25.1',
-        'setuptools'
+        'setuptools',
+        'websockets==15.0.1' # Because believe it or not, OpenAI agents use websockets and their package doesn't automatically install it
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
