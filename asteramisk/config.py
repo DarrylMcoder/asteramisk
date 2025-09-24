@@ -42,14 +42,8 @@ class Config:
     AUDIOSOCKET_BINDADDR = os.getenv('AUDIOSOCKET_BINDADDR', '0.0.0.0')
     """ The IP address to which the audiosocket server should bind. Default is 0.0.0.0, which allows the server to listen on all interfaces. """
 
-    AUDIOSOCKET_PORT = os.getenv('AUDIOSOCKET_PORT', '9998')
-    """ The port on which asteramisk's audiosocket server is listening for incoming audio. Default is 9998 """
-
-    AGI_SERVER_BINDADDR = os.getenv('AGI_SERVER_BINDADDR', '0.0.0.0')
-    """ The IP address to which the FastAGI server should bind. Default is 0.0.0.0, which allows the server to listen on all interfaces. """
-
-    AGI_SERVER_PORT = os.getenv('AGI_SERVER_PORT')
-    """ The port to use for the asterisk AGI server. You don't need to configure this anywhere else. We will take this value and use it on both the AGI server (this python application) and the AGI client (Asterisk). """
+    AUDIOSOCKET_PORT = os.getenv('AUDIOSOCKET_PORT', '0')
+    """ The port on which asteramisk's audiosocket server is listening for incoming audio. Default is 0, which means asteramisk will use a random available port. """
 
     SYSTEM_PHONE_NUMBER = os.getenv('SYSTEM_PHONE_NUMBER')
     """ The phone number associated with your telephony system. Used as the caller ID when making outgoing calls, if not specified in your code. """

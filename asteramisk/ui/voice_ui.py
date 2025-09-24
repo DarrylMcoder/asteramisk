@@ -36,7 +36,7 @@ class VoiceUI(UI):
         audiosocket = await AudiosocketAsync.create()
         stream_id = str(uuid.uuid4())
         self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
-            external_host=f"{config.ASTERISK_HOST}:{config.AUDIOSOCKET_PORT}",
+            external_host=f"{config.ASTERAMISK_HOST}:{audiosocket.port}", # Use the configured host and the possibly dynamic port in case no port was specified in the config
             encapsulation="audiosocket",
             app="asteramisk",
             transport="tcp",

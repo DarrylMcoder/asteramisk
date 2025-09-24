@@ -62,14 +62,6 @@ class Server(AsyncClass):
         if not config.ASTERISK_ARI_PASS:
             raise_not_configured("ASTERISK_ARI_PASS")
 
-        if not config.AGI_SERVER_PORT:
-            raise_not_configured("AGI_SERVER_PORT")
-        if not config.AGI_SERVER_BINDADDR:
-            config.AGI_SERVER_BINDADDR = '0.0.0.0'
-
-        self.host = config.ASTERAMISK_HOST
-        self.bindaddr = config.AGI_SERVER_BINDADDR
-        self.port = config.AGI_SERVER_PORT
         self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
