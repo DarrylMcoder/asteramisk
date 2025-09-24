@@ -25,7 +25,10 @@ class AudiosocketAsync(AsyncSingleton):
 
         self.initial_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.initial_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.initial_sock.bind((self.addr, self.port))
+        try:
+            self.initial_sock.bind((self.addr, self.port))
+        except OSError as e:
+            raise OSError(f"Failed to bind audiosocket to {self.addr}:{self.port}: {e}")
         self.initial_sock.settimeout(timeout)
         self.initial_sock.setblocking(False)
         self.initial_sock.listen(100)

@@ -9,7 +9,7 @@ from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.config import config
 from asteramisk.ui import UI
-from asteramisk.exceptions import HangupException, GoBackException, GotoMainException
+from asteramisk.exceptions import HangupException, GoBackException, GoToMainException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
