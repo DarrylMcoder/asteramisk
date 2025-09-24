@@ -134,9 +134,6 @@ class VoiceUI(UI):
         if hasattr(self, "_star_pressed") and self._star_pressed:
             self._star_pressed = False
             raise GoBackException("User pressed * to go back")
-        if hasattr(self, "_hash_pressed") and self._hash_pressed:
-            self._hash_pressed = False
-            raise GotoMainException("User pressed # to go to the main menu")
 
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self.text_out_queue.put(text)
@@ -374,11 +371,9 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
         digit = event['digit']
         if digit == "*":
+            logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, setting goback flag")
             # Set the goback flag
             self._star_pressed = True
-        elif digit == "#":
-            # Set the gotomainmenu flag
-            self._hash_pressed = True
         elif digit in self.dtmf_callbacks:
             # If there's a callback for this digit, run it
             await self.dtmf_callbacks[digit]()
