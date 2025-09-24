@@ -9,7 +9,7 @@ from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.config import config
 from asteramisk.ui import UI
-from asteramisk.exceptions import HangupException
+from asteramisk.exceptions import HangupException, GoBackException, GotoMainException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
@@ -129,6 +129,14 @@ class VoiceUI(UI):
 
         if not self.is_active:
             raise HangupException("UI is inactive, cannot say(). User probably hung up")
+
+        # Raise the proper exception if the user presses * or #
+        if hasattr(self, "_star_pressed") and self._star_pressed:
+            self._star_pressed = False
+            raise GoBackException("User pressed * to go back")
+        if hasattr(self, "_hash_pressed") and self._hash_pressed:
+            self._hash_pressed = False
+            raise GotoMainException("User pressed # to go to the main menu")
 
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self.text_out_queue.put(text)
@@ -365,7 +373,13 @@ class VoiceUI(UI):
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
         digit = event['digit']
-        if digit in self.dtmf_callbacks:
+        if digit == "*":
+            # Set the goback flag
+            self._star_pressed = True
+        elif digit == "#":
+            # Set the gotomainmenu flag
+            self._hash_pressed = True
+        elif digit in self.dtmf_callbacks:
             # If there's a callback for this digit, run it
             await self.dtmf_callbacks[digit]()
         else:
