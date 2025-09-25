@@ -19,6 +19,9 @@ async def main():
 
     server: Server = await Server.create()
     await server.register_extension("500", call_handler=call_handler)
+    await server.register_extension("501", call_handler=call_handler)
+    await server.register_extension("502", call_handler=call_handler)
+    await server.register_extension("503", call_handler=call_handler)
     await server.serve_forever()
 
 if __name__ == "__main__":
