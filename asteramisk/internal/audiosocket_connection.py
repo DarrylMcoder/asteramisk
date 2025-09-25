@@ -133,8 +133,11 @@ class AudioSocketConnectionAsync(AsyncClass):
 
     async def drain_send_queue(self):
         logger.debug("AsyncConnection.drain_send_queue")
+        # If the connection is closed, return immediately
+        if not self.connected:
+            logger.debug("AsyncConnection.drain_send_queue: connection is closed, nothing to drain")
+            return
         await self._tx_q.join()
-        logger.debug("AsyncConnection.drain_send_queue: done")
 
     def _split_data(self, data):
         if len(data) < 3:
