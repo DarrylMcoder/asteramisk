@@ -63,8 +63,8 @@ class Server(AsyncClass):
             raise_not_configured("ASTERISK_ARI_PASS")
 
         # Create semaphores to limit the number of concurrent calls and text conversations
-        self.call_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CALLS)
-        self.message_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CONVERSATIONS)
+        self.call_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CALLS))
+        self.message_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CONVERSATIONS))
 
         # A dictionary to store the dialplan priority at which each extension is registered
         self.extension_priorities = {}
