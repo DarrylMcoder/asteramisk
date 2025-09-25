@@ -62,6 +62,8 @@ class Server(AsyncClass):
         if not config.ASTERISK_ARI_PASS:
             raise_not_configured("ASTERISK_ARI_PASS")
 
+        self.call_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CALLS)
+        self.message_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CONVERSATIONS)
         self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
@@ -121,17 +123,83 @@ class Server(AsyncClass):
             )
         await manager.connect()
 
-        registration_action = panoramisk.actions.Action({
-            "Action": "DialPlanExtensionAdd",
+        self.dialplan_priority = 1
+        added_successfully = False
+        while not added_successfully:
+            registration_action = panoramisk.actions.Action({
+                "Action": "DialPlanExtensionAdd",
+                "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
+                "Extension": extension,
+                "Priority": self.dialplan_priority,
+                "Application": "Stasis",
+                "ApplicationData": f"{self.stasis_app},{extension_type}",
+                "Replace": "no" # Do not replace existing extension. If it exists, we need to increment the priority. This is so that we can have multiple instances of asteramisk running and each will pass the call to the next if it is overloaded
+            })
+
+            response = await manager.send_action(registration_action)
+            if response["Response"] == "Success":
+                logger.info(f"Registered extension {extension} with type {extension_type} at priority {self.dialplan_priority}")
+                added_successfully = True
+            elif response["Response"] == "Error" and response["Message"] == "That extension and priority already exist at that context":
+                logger.info(f"Extension {extension} with priority {self.dialplan_priority} already exists, probably another instance of asteramisk is running. Incrementing priority and trying again")
+                self.dialplan_priority += 1
+            else:
+                raise Exception(f"Failed to register extension {extension} with type {extension_type}. Response: {response}")
+
+        manager.close()
+
+    async def unregister_all_extensions(self):
+        """
+        Unregisters from asterisk all phone numbers registered for this instance.
+        Is an async method
+        """
+        # Copy because we are going to remove items from the dictionary, which is not allowed during iteration
+        extensions = list(self.handlers.keys())
+        for extension in extensions:
+            await self.unregister_extension(extension)
+
+    async def unregister_extension(self, extension):
+        """
+        Unregisters a phone number from asterisk.
+        Is an async method
+
+        :param extension: The phone number to unregister
+        """
+        # Convert to string
+        extension = str(extension)
+
+        # Raise an exception if the extension is not registered
+        if extension not in self.handlers:
+            raise Exception(f"Extension {extension} is not registered and therefore cannot be unregistered")
+
+        # Unregister from asterisk dialplan
+        await self._unregister_extension(extension, 'call')
+        await self._unregister_extension(extension, 'text')
+
+        # Remove from handlers
+        del self.handlers[extension]
+
+    async def _unregister_extension(self, extension, extension_type):
+        """
+        Internally called to unregister an extension
+        Not a public API function
+        """
+        manager = panoramisk.manager.Manager(
+                host=config.ASTERISK_HOST,
+                port=config.ASTERISK_AMI_PORT,
+                username=config.ASTERISK_AMI_USER,
+                secret=config.ASTERISK_AMI_PASS,
+                ssl=False
+            )
+        await manager.connect()
+
+        await manager.send_action(panoramisk.actions.Action({
+            "Action": "DialPlanExtensionRemove",
             "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
             "Extension": extension,
-            "Priority": 1,
-            "Application": "Stasis",
-            "ApplicationData": f"{self.stasis_app},{extension_type}",
-            "Replace": "yes"
-        })
+            "Priority": self.dialplan_priority
+        }))
 
-        await manager.send_action(registration_action)
         manager.close()
 
     async def serve_forever(self):
@@ -150,6 +218,7 @@ class Server(AsyncClass):
                 ]
             )
         finally:
+            await self.unregister_all_extensions()
             await self.audiosocket.close()
             await self.ari.close()
 
@@ -186,6 +255,15 @@ class Server(AsyncClass):
         Once per call.
         Not a public API function
         """
+
+        # Check if we are overloaded
+        acquired = await self.call_semaphore.acquire(timeout=0)
+        if not acquired:
+            logger.error("Call semaphore is full, dropping call")
+            # Simply return without hanging up. 
+            # This allows another node to pick up the call if multiple instances are running. e.g. docker swarm
+            # If no other instance is running, the call will hang up anyway
+
         ui = await VoiceUI.create(channel)
         extension = (await channel.getChannelVar(variable="EXTEN"))['value']
         call_handler, _ = self.handlers[extension]
@@ -208,6 +286,15 @@ class Server(AsyncClass):
             await broker.message_received(phone_number, message)
         else:
             # New conversation
+
+            # Check if we are overloaded
+            acquired = await self.message_semaphore.acquire(timeout=0)
+            if not acquired:
+                logger.error("Message semaphore is full, dropping message")
+                # Simply return without doing anything.
+                return
+
+            # Create a new UI and pass it to the message handler
             ui = await TextUI.create(phone_number)
             _, message_handler = self.handlers[extension]
             await message_handler(ui)

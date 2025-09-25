@@ -99,12 +99,10 @@ class AudioSocketConnectionAsync(AsyncClass):
             self._rx_resample_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._rx_resample_task
-            self._rx_resample_task = None
         if hasattr(self, '_tx_resample_task') and self._tx_resample_task is not None:
             self._tx_resample_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._tx_resample_task
-            self._tx_resample_task = None
         logger.debug("AsyncConnection.stop_resampling: done")
 
     async def get_uuid(self):
@@ -396,4 +394,3 @@ class AudioSocketConnectionAsync(AsyncClass):
             self._task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._task
-            self._task = None

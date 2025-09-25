@@ -187,4 +187,3 @@ class TextUI(UI):
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._agent_task
-            self._agent_task = None

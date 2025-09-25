@@ -63,6 +63,12 @@ class Config:
     LOG_DIR = os.getenv('LOG_DIR', '/var/log/asteramisk')
     """ The directory where asteramisk stores log files. Default is /var/log/asteramisk """
 
+    MAX_CONCURRENT_CALLS = os.getenv('MAX_CONCURRENT_CALLS', 10)
+    """ The maximum number of concurrent calls that can be made at once. Default is 10. """
+
+    MAX_CONCURRENT_CONVERSATIONS = os.getenv('MAX_CONCURRENT_CONVERSATIONS', 100)
+    """ The maximum number of concurrent text message conversations that can be held at once. Default is 100. """
+
     OUTBOUND_CALL_TIMEOUT = os.getenv('OUTBOUND_CALL_TIMEOUT', 30)
     """ The timeout in seconds for outbound calls. Default is 30 seconds. """
 

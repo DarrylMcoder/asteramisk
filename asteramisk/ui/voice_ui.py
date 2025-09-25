@@ -9,7 +9,7 @@ from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.config import config
 from asteramisk.ui import UI
-from asteramisk.exceptions import HangupException, GoBackException, GoToMainException
+from asteramisk.exceptions import HangupException, GoBackException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
@@ -114,7 +114,6 @@ class VoiceUI(UI):
         self.out_media_task.cancel()
         with suppress(asyncio.CancelledError):
             await self.out_media_task
-        self.out_media_task = None
 
     async def say(self, text) -> None:
         """
@@ -283,7 +282,6 @@ class VoiceUI(UI):
                     self._audio_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await self._audio_task
-                    self._audio_task = None
                 # Stop resampling which is only used for agents
                 await self.audconn.stop_resampling()
         # end _run_agent_task
@@ -309,7 +307,6 @@ class VoiceUI(UI):
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._agent_task
-            self._agent_task = None
 
     ### Voice UI specific methods ###
 
