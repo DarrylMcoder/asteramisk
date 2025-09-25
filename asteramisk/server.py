@@ -270,16 +270,19 @@ class Server(AsyncClass):
             # Simply return without hanging up. 
             # This allows another node to pick up the call if multiple instances are running. e.g. docker swarm
             # If no other instance is running, the call will hang up anyway
+            await channel.continueInDialplan()
             return
 
-        # If the try succeeds, we are not overloaded
-        ui = await VoiceUI.create(channel)
-        extension = (await channel.getChannelVar(variable="EXTEN"))['value']
-        call_handler, _ = self.handlers[extension]
-        await call_handler(ui)
+        else:
+            # If the try succeeds, we are not overloaded
+            ui = await VoiceUI.create(channel)
+            extension = (await channel.getChannelVar(variable="EXTEN"))['value']
+            call_handler, _ = self.handlers[extension]
+            await call_handler(ui)
 
-        # Release here as well. Should only have been acquired if we are not overloaded
-        self.call_semaphore.release()
+        finally:
+            # Release here as well. Should only have been acquired if we are not overloaded
+            self.call_semaphore.release()
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
         """
@@ -305,15 +308,18 @@ class Server(AsyncClass):
             except asyncio.TimeoutError:
                 logger.error("Message semaphore is full, dropping message.")
                 # Simply return without doing anything.
+                await channel.continueInDialplan()
                 return
 
-            # Create a new UI and pass it to the message handler
-            ui = await TextUI.create(phone_number)
-            _, message_handler = self.handlers[extension]
-            await message_handler(ui)
+            else:
+                # Create a new UI and pass it to the message handler
+                ui = await TextUI.create(phone_number)
+                _, message_handler = self.handlers[extension]
+                await message_handler(ui)
 
-            # Release here as well. Should only have been acquired if we are not overloaded
-            self.message_semaphore.release()
+            finally:
+                # Release here as well. Should only have been acquired if we are not overloaded
+                self.message_semaphore.release()
 
     async def call_handler(self, ui: VoiceUI):
         """
