@@ -62,8 +62,13 @@ class Server(AsyncClass):
         if not config.ASTERISK_ARI_PASS:
             raise_not_configured("ASTERISK_ARI_PASS")
 
+        # Create semaphores to limit the number of concurrent calls and text conversations
         self.call_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CALLS)
         self.message_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_CONVERSATIONS)
+
+        # A dictionary to store the dialplan priority at which each extension is registered
+        self.extension_priorities = {}
+
         self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
@@ -123,14 +128,14 @@ class Server(AsyncClass):
             )
         await manager.connect()
 
-        self.dialplan_priority = 1
+        self.extension_priorities[extension] = 1
         added_successfully = False
         while not added_successfully:
             registration_action = panoramisk.actions.Action({
                 "Action": "DialPlanExtensionAdd",
                 "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
                 "Extension": extension,
-                "Priority": self.dialplan_priority,
+                "Priority": self.extension_priorities[extension],
                 "Application": "Stasis",
                 "ApplicationData": f"{self.stasis_app},{extension_type}",
                 "Replace": "no" # Do not replace existing extension. If it exists, we need to increment the priority. This is so that we can have multiple instances of asteramisk running and each will pass the call to the next if it is overloaded
@@ -142,7 +147,7 @@ class Server(AsyncClass):
                 added_successfully = True
             elif response["Response"] == "Error" and response["Message"] == "That extension and priority already exist at that context":
                 logger.info(f"Extension {extension} with priority {self.dialplan_priority} already exists, probably another instance of asteramisk is running. Incrementing priority and trying again")
-                self.dialplan_priority += 1
+                self.extension_priorities[extension] += 1
             else:
                 raise Exception(f"Failed to register extension {extension} with type {extension_type}. Response: {response}")
 
@@ -197,7 +202,7 @@ class Server(AsyncClass):
             "Action": "DialPlanExtensionRemove",
             "Context": f"{config.ASTERISK_INCOMING_CALL_CONTEXT if extension_type == 'call' else config.ASTERISK_INCOMING_TEXT_CONTEXT}",
             "Extension": extension,
-            "Priority": self.dialplan_priority
+            "Priority": self.extension_priorities[extension]
         }))
 
         manager.close()
