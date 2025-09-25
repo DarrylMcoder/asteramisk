@@ -143,10 +143,10 @@ class Server(AsyncClass):
 
             response = await manager.send_action(registration_action)
             if response["Response"] == "Success":
-                logger.info(f"Registered extension {extension} with type {extension_type} at priority {self.dialplan_priority}")
+                logger.info(f"Registered extension {extension} with type {extension_type} at priority {self.extension_priorities[extension]}")
                 added_successfully = True
             elif response["Response"] == "Error" and response["Message"] == "That extension and priority already exist at that context":
-                logger.info(f"Extension {extension} with priority {self.dialplan_priority} already exists, probably another instance of asteramisk is running. Incrementing priority and trying again")
+                logger.info(f"Extension {extension} with priority {self.extension_priorities[extension]} already exists, probably another instance of asteramisk is running. Incrementing priority and trying again")
                 self.extension_priorities[extension] += 1
             else:
                 raise Exception(f"Failed to register extension {extension} with type {extension_type}. Response: {response}")
