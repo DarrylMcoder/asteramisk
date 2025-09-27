@@ -97,18 +97,18 @@ class VoiceUI(UI):
         self.answered = True
         self.is_active = True
 
-    async def hangup(self, drain_first=False):
+    async def hangup(self, wait=True):
         """
         Hangs up the call.
-        :param drain_first: If True, wait for the audio to finish playing before hanging up
+        :param wait: Whether to wait for the audio to finish playing
         """
         logger.debug("VoiceUI.hangup")
-        if drain_first:
+        if wait:
             # Wait for the audio to finish playing
             await self._done_speaking()
 
         # Stop the agent if connected
-        await self.disconnect_openai_agent()
+        await self.disconnect_openai_agent(wait=wait)
 
         # Cancel the main task, which handles any cleanup in its finally block
         self.out_media_task.cancel()
@@ -295,15 +295,17 @@ class VoiceUI(UI):
         self._agent_task = asyncio.create_task(_run_agent_task())
         return self._agent_task
 
-    async def disconnect_openai_agent(self):
+    async def disconnect_openai_agent(self, wait=True):
         """
         Disconnects the voice UI from any currently connected OpenAI agent.
         Currently quite buggy so use with caution.
         Once connected, agents generally run until the conversation ends.
+        :param wait: Whether to wait for the agent to finish speaking before disconnecting
         """
         logger.debug("VoiceUI.disconnect_openai_agent")
-        # Wait till the agent has finished speaking
-        await self._done_speaking()
+        if wait:
+            # Wait till the agent has finished speaking
+            await self._done_speaking()
         # Disconnect the agent
         if hasattr(self, "_agent_task") and self._agent_task is not None:
             self._agent_task.cancel()
@@ -381,7 +383,7 @@ class VoiceUI(UI):
         logger.debug("VoiceUI._on_channel_stasis_end")
         logger.info("Caller has hung up, so we are also hanging up")
         # The call has ended, clean up
-        await self.hangup()
+        await self.hangup(wait=False)
 
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
