@@ -310,6 +310,15 @@ class UI(AsyncClass):
         selected = await self.select(prompt, final_options)
         return selected
 
+    async def bridge(self, ui: UI):
+        """
+        Bridge two UIs together
+        Media will flow between the two UIs
+        :param ui: The UI to bridge to
+        :return: None
+        """
+        raise NotImplementedError
+
     async def _run_text_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
         try:
             if model is None and not agent.model:

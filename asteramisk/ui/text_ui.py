@@ -187,3 +187,24 @@ class TextUI(UI):
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._agent_task
+
+    async def bridge(self, ui: TextUI):
+        """
+        Bridges two text UIs together
+        Media will flow between the two UIs
+        :param ui: The UI to bridge to
+        :return: None
+        """
+        if ui.ui_type == self.UIType.TEXT:
+            # Simply constantly copy messages between the two UIs
+            async def _to_ui():
+                async for message in self.input_stream():
+                    await ui.say(message)
+
+            async def _from_ui():
+                async for message in ui.input_stream():
+                    await self.say(message)
+
+            await asyncio.gather(_to_ui(), _from_ui())
+        else:
+            raise ValueError("Can only bridge TextUIs to TextUIs")

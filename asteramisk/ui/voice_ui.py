@@ -308,6 +308,21 @@ class VoiceUI(UI):
             with suppress(asyncio.CancelledError):
                 await self._agent_task
 
+    async def bridge(self, ui: VoiceUI):
+        """
+        Bridges two voice UIs together
+        Media will flow between the two UIs
+        :param ui: The UI to bridge to
+        :return: None
+        """
+        if ui.ui_type == self.UIType.VOICE:
+            # Add each UI's channel to the other UI's bridge
+            # This should allow audio to flow everywhere
+            await self.bridge.addChannel(ui.channel.id)
+            await ui.bridge.addChannel(self.channel.id)
+        else:
+            raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
+
     ### Voice UI specific methods ###
 
     async def control_say(self, text):

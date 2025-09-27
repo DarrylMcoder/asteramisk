@@ -94,6 +94,10 @@ class Communicator(AsyncClass):
         callerid_number = callerid_number or self._callerid_number or config.SYSTEM_PHONE_NUMBER
         callerid_name = callerid_name or self._callerid_name or config.SYSTEM_NAME
 
+        # Convert to strings in case they are ints
+        recipient_number = str(recipient_number)
+        callerid_number = str(callerid_number)
+
         if recipient_number:
             channel = f"PJSIP/{recipient_number}@{config.ASTERISK_PSTN_ENDPOINT}"
 
