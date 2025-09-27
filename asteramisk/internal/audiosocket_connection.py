@@ -53,7 +53,6 @@ class AudioSocketConnectionAsync(AsyncClass):
         self.peer_addr = peer_addr
         self._uuid = None
         self.connected = True
-        self.is_closing = False
         self._rx_q = asyncio.Queue(500)
         self._tx_q = asyncio.Queue(500)
         self._from_asterisk_resample_factor = 1
@@ -133,22 +132,16 @@ class AudioSocketConnectionAsync(AsyncClass):
 
     async def drain_send_queue(self):
         logger.debug("AsyncConnection.drain_send_queue")
-        async def _is_connected_poll():
-            while self.connected:
-                await asyncio.sleep(0.1)
-
-        # Wait for the connection to close, or for the send queue to drain
-        task_is_connected_poll = asyncio.create_task(_is_connected_poll())
-        task_wait_for_tx_q = asyncio.create_task(self._tx_q.join())
-
-        for completion in asyncio.as_completed([task_is_connected_poll, task_wait_for_tx_q]):
-            await completion
-            break
-        for task in [task_is_connected_poll, task_wait_for_tx_q]:
-            if not task.done():
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+        # Don't just join the queue, because if the call is hung up while we are waiting, it will block forever
+        # So loop, checking if the queue is empty
+        while True:
+            if not self.connected:
+                # Hangup happenned, stop waiting
+                break
+            if self._tx_q.qsize() == 0:
+                # Queue is empty, stop waiting
+                break
+            await asyncio.sleep(0.1)
 
         logger.debug("AsyncConnection.drain_send_queue: done")
 

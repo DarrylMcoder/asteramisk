@@ -113,6 +113,7 @@ class VoiceUI(UI):
         # Cancel the main task, which handles any cleanup in its finally block
         self.out_media_task.cancel()
         with suppress(asyncio.CancelledError):
+            logger.debug("VoiceUI.hangup: waiting for out_media_task to finish")
             await self.out_media_task
 
     async def say(self, text) -> None:
@@ -300,12 +301,14 @@ class VoiceUI(UI):
         Currently quite buggy so use with caution.
         Once connected, agents generally run until the conversation ends.
         """
+        logger.debug("VoiceUI.disconnect_openai_agent")
         # Wait till the agent has finished speaking
         await self._done_speaking()
         # Disconnect the agent
         if hasattr(self, "_agent_task") and self._agent_task is not None:
             self._agent_task.cancel()
             with suppress(asyncio.CancelledError):
+                logger.debug("VoiceUI.disconnect_openai_agent: waiting for _agent_task to finish")
                 await self._agent_task
 
     async def bridge(self, ui):
@@ -326,6 +329,7 @@ class VoiceUI(UI):
     ### Voice UI specific methods ###
 
     async def control_say(self, text):
+        logger.debug("VoiceUI.control_say")
         # Speak text, allowing rewind and fast forward
         filename = await self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
         # Since this doesn't actually use the queue, make sure this doesn't interfere with previously queued audio
@@ -397,11 +401,13 @@ class VoiceUI(UI):
     ### Private methods ###
 
     async def _ensure_answered(self):
+        logger.debug("VoiceUI._ensure_answered")
         if not self.answered:
             logger.warning("VoiceUI._ensure_answered: Call was not explicitly answered. Answering now...")
             await self.answer()
 
     async def _done_speaking(self):
+        logger.debug("VoiceUI._done_speaking")
         # Wait till every line of text has been sent to the player
         await self.text_out_queue.join()
         # Also wait till the last item in the queue has finished playing
