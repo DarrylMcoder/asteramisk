@@ -133,11 +133,24 @@ class AudioSocketConnectionAsync(AsyncClass):
 
     async def drain_send_queue(self):
         logger.debug("AsyncConnection.drain_send_queue")
-        # If the connection is closed, return immediately
-        if not self.connected:
-            logger.debug("AsyncConnection.drain_send_queue: connection is closed, nothing to drain")
-            return
-        await self._tx_q.join()
+        async def _is_connected_poll():
+            while self.connected:
+                await asyncio.sleep(0.1)
+
+        # Wait for the connection to close, or for the send queue to drain
+        task_is_connected_poll = asyncio.create_task(_is_connected_poll())
+        task_wait_for_tx_q = asyncio.create_task(self._tx_q.join())
+
+        for completion in asyncio.as_completed([task_is_connected_poll, task_wait_for_tx_q]):
+            await completion
+            break
+        for task in [task_is_connected_poll, task_wait_for_tx_q]:
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+        logger.debug("AsyncConnection.drain_send_queue: done")
 
     def _split_data(self, data):
         if len(data) < 3:
