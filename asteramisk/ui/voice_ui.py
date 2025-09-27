@@ -43,10 +43,10 @@ class VoiceUI(UI):
             format="slin",
             data=stream_id)
 
-        self.bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
+        self._bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
 
-        await self.bridge.addChannel(channel=self.external_media_channel.id)
-        await self.bridge.addChannel(channel=self.channel.id)
+        await self._bridge.addChannel(channel=self.external_media_channel.id)
+        await self._bridge.addChannel(channel=self.channel.id)
         self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
         self.channel.on_event('StasisEnd', lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
         self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
@@ -323,8 +323,8 @@ class VoiceUI(UI):
         if ui.ui_type == self.UIType.VOICE:
             # Add each UI's channel to the other UI's bridge
             # This should allow audio to flow everywhere
-            await self.bridge.addChannel(ui.channel.id)
-            await ui.bridge.addChannel(self.channel.id)
+            await self._bridge.addChannel(ui.channel.id)
+            await ui._bridge.addChannel(self.channel.id)
         else:
             raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
 
@@ -475,7 +475,7 @@ class VoiceUI(UI):
             await self.tts_engine.close()
             # Clean up ARI resources
             with suppress(aiohttp.web_exceptions.HTTPNotFound):
-                await self.bridge.destroy()
+                await self._bridge.destroy()
             with suppress(aiohttp.web_exceptions.HTTPNotFound):
                 await self.external_media_channel.hangup()
             with suppress(aiohttp.web_exceptions.HTTPNotFound):
