@@ -310,7 +310,7 @@ class UI(AsyncClass):
         selected = await self.select(prompt, final_options)
         return selected
 
-    async def bridge(self, ui: UI):
+    async def bridge(self, ui):
         """
         Bridge two UIs together
         Media will flow between the two UIs

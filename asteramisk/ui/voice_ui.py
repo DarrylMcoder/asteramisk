@@ -308,7 +308,7 @@ class VoiceUI(UI):
             with suppress(asyncio.CancelledError):
                 await self._agent_task
 
-    async def bridge(self, ui: VoiceUI):
+    async def bridge(self, ui):
         """
         Bridges two voice UIs together
         Media will flow between the two UIs

@@ -188,7 +188,7 @@ class TextUI(UI):
             with suppress(asyncio.CancelledError):
                 await self._agent_task
 
-    async def bridge(self, ui: TextUI):
+    async def bridge(self, ui):
         """
         Bridges two text UIs together
         Media will flow between the two UIs
