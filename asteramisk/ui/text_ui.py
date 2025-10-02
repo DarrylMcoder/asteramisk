@@ -17,7 +17,7 @@ class TextUI(UI):
         self._our_callerid_number = our_callerid_number
         self._our_callerid_name = our_callerid_name
         self.is_active = False
-        super().__create__()
+        await super().__create__()
 
     @property
     def ui_type(self):
