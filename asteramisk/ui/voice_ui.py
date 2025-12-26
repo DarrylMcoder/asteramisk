@@ -261,6 +261,7 @@ class VoiceUI(UI):
                                 audio = await self.audconn.read()
                                 if not audio:
                                     # Is sometimes empty bytes when the call is hung up
+                                    print("audio_loop: Empty audio")
                                     break
                                 try:
                                     await session.send_audio(audio)
