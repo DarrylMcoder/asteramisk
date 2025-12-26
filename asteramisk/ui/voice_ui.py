@@ -255,6 +255,9 @@ class VoiceUI(UI):
                             # Directly pass audio from the UI to the OpenAI session
                             while self.is_active and self.audconn.connected:
                                 logger.debug("audio_loop: Waiting for audio")
+                                print("audio_loop: Waiting for audio")
+                                print(f"audio_loop, audconn.connected: {self.audconn.connected}")
+                                print(f"audio_loop, is_active: {self.is_active}")
                                 audio = await self.audconn.read()
                                 try:
                                     await session.send_audio(audio)
@@ -274,7 +277,7 @@ class VoiceUI(UI):
                                 if event.data.type == "raw_server_event":
                                     logger.debug(f"     {event.data.data['type']}")
                             elif event.type == "error":
-                                logger.error(f"OpenAI session error: {event}")
+                                logger.debug(f"OpenAI session error: {event}")
                 else:
                     raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
             finally:
