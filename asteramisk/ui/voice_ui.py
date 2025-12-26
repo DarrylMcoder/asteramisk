@@ -262,7 +262,6 @@ class VoiceUI(UI):
                                 if not audio:
                                     # Is sometimes empty bytes when the call is hung up
                                     print("audio_loop: Empty audio")
-                                    break
                                 try:
                                     await session.send_audio(audio)
                                 except websockets.exceptions.ConnectionClosed:
