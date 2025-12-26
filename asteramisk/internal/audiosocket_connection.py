@@ -244,6 +244,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         )
         try:
             while self.connected:
+                print("AsyncConnection._tx_resample_task: reading")
                 async with self._to_asterisk_resampler_lock:
                     audio = await self._to_asterisk_resampler.stdout.read(320)
                 await self._write_to_tx_queue(audio)
@@ -290,6 +291,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         if self._from_asterisk_resampler:
             async with self._from_asterisk_resampler_lock:
                 bytes_to_read = int(320 * self._from_asterisk_resample_factor)
+                print("AsyncConnection.read reading")
                 async with self._from_asterisk_resampler_lock:
                     return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
         else:
