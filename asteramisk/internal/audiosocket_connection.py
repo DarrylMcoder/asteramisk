@@ -66,6 +66,8 @@ class AudioSocketConnectionAsync(AsyncClass):
         self._event_callbacks = {}
         self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._process())
+        self._tx_resample_stdout_lock = asyncio.Lock()
+        self._rx_resample_stdout_lock = asyncio.Lock()
 
     def on(self, event, callback):
         # Ensure that the event exists in types_struct
@@ -216,7 +218,8 @@ class AudioSocketConnectionAsync(AsyncClass):
                 self._rx_q.task_done()
         finally:
             # Clean up the resources we use in this task
-            await self._stop_process(self._from_asterisk_resampler)
+            async with self._from_asterisk_resampler_lock:
+                await self._stop_process(self._from_asterisk_resampler)
             self._from_asterisk_resampler = None
             logger.debug("AsyncConnection._rx_resample_task: done")
 
@@ -241,11 +244,13 @@ class AudioSocketConnectionAsync(AsyncClass):
         )
         try:
             while self.connected:
-                audio = await self._to_asterisk_resampler.stdout.read(320)
+                async with self._to_asterisk_resampler_lock:
+                    audio = await self._to_asterisk_resampler.stdout.read(320)
                 await self._write_to_tx_queue(audio)
         finally:
             # Clean up the resources we use in this task
-            await self._stop_process(self._to_asterisk_resampler)
+            async with self._to_asterisk_resampler_lock:
+                await self._stop_process(self._to_asterisk_resampler)
             self._to_asterisk_resampler = None
             logger.debug("AsyncConnection._tx_resample_task: done")
 
@@ -285,7 +290,8 @@ class AudioSocketConnectionAsync(AsyncClass):
         if self._from_asterisk_resampler:
             async with self._from_asterisk_resampler_lock:
                 bytes_to_read = int(320 * self._from_asterisk_resample_factor)
-                return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
+                async with self._from_asterisk_resampler_lock:
+                    return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
         else:
             audio = await self._rx_q.get()
             self._rx_q.task_done()
