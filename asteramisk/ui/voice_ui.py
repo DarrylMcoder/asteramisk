@@ -259,6 +259,9 @@ class VoiceUI(UI):
                                 print(f"audio_loop, audconn.connected: {self.audconn.connected}")
                                 print(f"audio_loop, is_active: {self.is_active}")
                                 audio = await self.audconn.read()
+                                if not audio:
+                                    # Is sometimes empty bytes when the call is hung up
+                                    break
                                 try:
                                     await session.send_audio(audio)
                                 except websockets.exceptions.ConnectionClosed:
