@@ -105,9 +105,17 @@ class AudioSocketConnectionAsync(AsyncClass):
         logger.debug("AsyncConnection.stop_resampling: done")
 
     async def get_uuid(self):
-        while self._uuid is None:
-            logger.debug("AsyncConnection.get_uuid: waiting for uuid")
-            await asyncio.sleep(0.1)
+        """
+        Waits for the connection UUID to be sent from Asterisk and returns it
+        Raises asyncio.TimeoutError if the UUID is not sent within 5 seconds
+        :return: UUID
+        :raises: asyncio.TimeoutError
+        """
+        async def _get_uuid():
+            while self._uuid is None:
+                logger.debug("AsyncConnection.get_uuid: waiting for uuid")
+                await asyncio.sleep(0.1)
+        await asyncio.wait_for(_get_uuid(), timeout=5)
         return self._uuid
 
     async def clear_send_queue(self):

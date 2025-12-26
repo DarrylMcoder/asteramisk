@@ -342,8 +342,8 @@ class UI(AsyncClass):
                         session=sqlite_session,
                         input=user_input
                 )
-                print("AI:", result.final_output)
+                logger.debug(f"AI: {result.final_output}")
                 await self.say(result.final_output)
         finally:
-            await sqlite_session.close()
+            sqlite_session.close()
 

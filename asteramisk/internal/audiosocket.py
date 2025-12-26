@@ -38,11 +38,19 @@ class AudiosocketAsync(AsyncSingleton):
         self._listen_task = asyncio.create_task(self._listen_loop())
 
     async def _listen_loop(self):
+        """
+        The main listening loop for the audiosocket
+        Continuously accepts new connections from asterisk
+        """
         logger.debug("AsyncAudiosocket._listen_loop")
         while True:
             audconn = await self.listen()
             logger.debug("AsyncAudiosocket._listen_loop: audconn created")
-            stream_id = await audconn.get_uuid()
+            try:
+                stream_id = await audconn.get_uuid()
+            except asyncio.TimeoutError:
+                logger.error("AsyncAudiosocket._listen_loop: timed out waiting for uuid. We probably dropped a call")
+                continue
             self.connections[stream_id] = audconn
             logger.debug(f"AsyncAudiosocket._listen_loop: added connection {stream_id}")
 

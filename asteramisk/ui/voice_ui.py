@@ -229,6 +229,7 @@ class VoiceUI(UI):
                 if isinstance(agent, Agent):
                     await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
                 elif isinstance(agent, RealtimeAgent):
+                    RealtimeAgent(
                     await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
                     if model is None:
                         # Use the cheaper mini model rather than the default GPT-4o
@@ -253,7 +254,7 @@ class VoiceUI(UI):
                         self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
                         async def audio_loop():
                             # Directly pass audio from the UI to the OpenAI session
-                            while self.is_active:
+                            while self.is_active and self.audconn.connected:
                                 logger.debug("audio_loop: Waiting for audio")
                                 audio = await self.audconn.read()
                                 try:

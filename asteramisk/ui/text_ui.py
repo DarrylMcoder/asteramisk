@@ -16,7 +16,7 @@ class TextUI(UI):
         self._recipient_number = recipient_number
         self._our_callerid_number = our_callerid_number
         self._our_callerid_name = our_callerid_name
-        self.is_active = False
+        self.is_active = True # Technically maybe not yet True but it will be soon
         await super().__create__()
 
     @property
