@@ -11,7 +11,6 @@ from asteramisk.ui import VoiceUI, TextUI
 from asteramisk.internal.message_broker import MessageBroker
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.internal.ari_client import AriClient
-from asteramisk.internal.audiosocket import AudiosocketAsync
 
 import logging
 logger = logging.getLogger(__name__)
@@ -69,7 +68,6 @@ class Server(AsyncClass):
         # A dictionary to store the dialplan priority at which each extension is registered
         self.extension_priorities = {}
 
-        self.audiosocket: AudiosocketAsync = await AudiosocketAsync.create()
         self.ari: aioari.Client = await AriClient.create(
                 ari_host=config.ASTERISK_HOST,
                 ari_port=config.ASTERISK_ARI_PORT,

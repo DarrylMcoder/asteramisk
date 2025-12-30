@@ -13,8 +13,7 @@ from asteramisk.exceptions import HangupException, GoBackException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
-from asteramisk.internal.audiosocket import AudiosocketAsync
-from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
+from asteramisk.internal.rtp_socket import RTPSocket
 
 
 import logging
@@ -33,21 +32,26 @@ class VoiceUI(UI):
         self.answered = False
         self.is_active = True
         self.ari: aioari.Client = await AriClient.create()
-        audiosocket = await AudiosocketAsync.create()
-        stream_id = str(uuid.uuid4())
+
+        udp_port = config.ASTERAMISK_UDP_BASE + (int(self.channel.id[-4:], 16) % 500) if len(self.channel.id) > 4 else config.ASTERAMISK_UDP_BASE
+
+        em_id = f"ext-{uuid.uuid4()}"
         self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
-            external_host=f"{config.ASTERAMISK_HOST}:{audiosocket.port}", # Use the configured host and the possibly dynamic port in case no port was specified in the config
-            encapsulation="audiosocket",
+            external_host=f"{config.ASTERAMISK_HOST}:{udp_port}",
+            channelId=em_id,
             app="asteramisk",
-            transport="tcp",
-            format="slin",
-            data=stream_id)
+            format="slin16",
+            direction="both")
 
         self._bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
 
         await self._bridge.addChannel(channel=self.external_media_channel.id)
         await self._bridge.addChannel(channel=self.channel.id)
-        self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
+
+        asterisk_rtp_host = await self.external_media_channel.getChannelVar(variable="UNICAST_LOCAL_ADDRESS")
+        asterisk_rtp_port = await self.external_media_channel.getChannelVar(variable="UNICAST_LOCAL_PORT")
+        self.audconn: RTPSocket = await RTPSocket.create(asterisk_rtp_host=config.ASTERISK_HOST, asterisk_rtp_port=asterisk_rtp_port, local_rtp_host=config.ASTERAMISK_HOST, local_rtp_port=udp_port)
+
         self.channel.on_event('StasisEnd', lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
         self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
         self.tts_engine: TTSEngine = await TTSEngine.create()
@@ -56,6 +60,7 @@ class VoiceUI(UI):
         self.dtmf_callbacks = {}
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
+        self.hangup_event = asyncio.Event()
         await super().__create__()
 
     @property
@@ -127,7 +132,7 @@ class VoiceUI(UI):
         # Ensure the call is answered, since we can't hear anything otherwise
         await self._ensure_answered()
 
-        if not self.is_active:
+        if self.hangup_event.is_set():
             raise HangupException("UI is inactive, cannot say(). User probably hung up")
 
         # Raise the proper exception if the user presses * or #
@@ -150,7 +155,7 @@ class VoiceUI(UI):
         transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn)
         logger.debug(f"VoiceUI.prompt transcription: {transcription}")
         # Immediately stop audio playback when we get the transcription
-        await self.audconn.clear_send_queue()
+        #await self.audconn.clear_send_queue()
         if not transcription:
             await self.say("I didn't get that. Please try again.")
             return await self.prompt(text)
@@ -191,7 +196,7 @@ class VoiceUI(UI):
         try:
             async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
                 # Immediately stop audio playback when we get a new transcription
-                await self.audconn.clear_send_queue()
+                #await self.audconn.clear_send_queue()
                 yield transcript
         except GeneratorExit:
             pass
@@ -253,28 +258,25 @@ class VoiceUI(UI):
                         self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
                         async def audio_loop():
                             # Directly pass audio from the UI to the OpenAI session
-                            while self.is_active and self.audconn.connected:
+                            while not self.hangup_event.is_set():
                                 logger.debug("audio_loop: Waiting for audio")
-                                print("audio_loop: Waiting for audio")
-                                print(f"audio_loop, audconn.connected: {self.audconn.connected}")
-                                print(f"audio_loop, is_active: {self.is_active}")
                                 audio = await self.audconn.read()
-                                if not audio:
-                                    # Is sometimes empty bytes when the call is hung up
-                                    print("audio_loop: Empty audio")
                                 try:
                                     await session.send_audio(audio)
                                 except websockets.exceptions.ConnectionClosed:
                                     break
                         self._audio_task = asyncio.create_task(audio_loop())
                         async for event in session:
+                            if self.hangup_event.is_set():
+                                break
                             logger.debug(event.type)
                             if event.type == "audio":
                                 audio = event.audio.data
                                 await self.audconn.write(audio)
                             elif event.type == "audio_interrupted":
                                 # Audio was interrupted, stop speaking and listen
-                                await self.audconn.clear_send_queue()
+                                #await self.audconn.clear_send_queue()
+                                pass
                             elif event.type == "raw_model_event":
                                 logger.debug(f"  {event.data.type}")
                                 if event.data.type == "raw_server_event":
@@ -290,7 +292,6 @@ class VoiceUI(UI):
                     with suppress(asyncio.CancelledError):
                         await self._audio_task
                 # Stop resampling which is only used for agents
-                await self.audconn.stop_resampling()
         # end _run_agent_task
 
         # Wait for any previously queued audio to finish before connecting
@@ -419,7 +420,7 @@ class VoiceUI(UI):
         # Wait till every line of text has been sent to the player
         await self.text_out_queue.join()
         # Also wait till the last item in the queue has finished playing
-        await self.audconn.drain_send_queue()
+        #await self.audconn.drain_send_queue()
 
     async def _clear_dtmf_queue(self):
         while True:
@@ -441,7 +442,7 @@ class VoiceUI(UI):
                 try:
                     digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
                     # Stop sending audio if we get a digit response
-                    await self.audconn.clear_send_queue()
+                    #await self.audconn.clear_send_queue()
                 except asyncio.TimeoutError:
                     # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
                     if timer_task.done():
@@ -454,7 +455,7 @@ class VoiceUI(UI):
                 try:
                     digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
                     # Stop sending audio if we get a digit response
-                    await self.audconn.clear_send_queue()
+                    #await self.audconn.clear_send_queue()
                 except asyncio.TimeoutError:
                     # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
                     if timer_task.done():
@@ -472,7 +473,7 @@ class VoiceUI(UI):
                 text = await self.text_out_queue.get()
                 audio = await self.tts_engine.tts(text=text, voice=self.voice)
                 # Wait for the previous audio to finish playing, so that we don't get way out of sync
-                await self.audconn.drain_send_queue()
+                #await self.audconn.drain_send_queue()
                 await self.audconn.write(audio)
                 self.text_out_queue.task_done()
         finally:
