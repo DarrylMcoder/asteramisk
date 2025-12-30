@@ -39,7 +39,7 @@ class Config:
     ASTERAMISK_HOST = os.getenv('ASTERAMISK_HOST', '127.0.0.1')
     """ The host of the asteramisk server. The hostname or IP address to which Asterisk should send AGI requests and audiosocket media. The hostname or IP address your Python application is running on."""
 
-    ASTERAMISK_UDP_BASE = os.getenv('ASTERAMISK_UDP_BASE', '42000')
+    ASTERAMISK_UDP_BASE = int(os.getenv('ASTERAMISK_UDP_BASE', '42000'))
     """ The lowest port in the range of ports on which asteramisk will listen for incoming audio. Default is 42000. """
 
     SYSTEM_PHONE_NUMBER = os.getenv('SYSTEM_PHONE_NUMBER')
