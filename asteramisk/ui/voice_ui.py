@@ -33,7 +33,7 @@ class VoiceUI(UI):
         self.is_active = True
         self.ari: aioari.Client = await AriClient.create()
 
-        udp_port = config.ASTERAMISK_UDP_BASE + (int(self.channel.id[-4:], 16) % 500) if len(self.channel.id) > 4 else config.ASTERAMISK_UDP_BASE
+        udp_port = config.ASTERAMISK_UDP_BASE + (int(self.channel.id[:4], 16) % 500) if len(self.channel.id) > 4 else config.ASTERAMISK_UDP_BASE
 
         em_id = f"ext-{uuid.uuid4()}"
         self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
