@@ -48,8 +48,8 @@ class VoiceUI(UI):
         await self._bridge.addChannel(channel=self.external_media_channel.id)
         await self._bridge.addChannel(channel=self.channel.id)
 
-        asterisk_rtp_host = await self.external_media_channel.getChannelVar(variable="UNICAST_LOCAL_ADDRESS")
-        asterisk_rtp_port = await self.external_media_channel.getChannelVar(variable="UNICAST_LOCAL_PORT")
+        asterisk_rtp_host = await self.external_media_channel.getChannelVar(variable="UNICASTRTP_LOCAL_ADDRESS")
+        asterisk_rtp_port = await self.external_media_channel.getChannelVar(variable="UNICASTRTP_LOCAL_PORT")
         self.audconn: RTPSocket = await RTPSocket.create(asterisk_rtp_host=config.ASTERISK_HOST, asterisk_rtp_port=asterisk_rtp_port, local_rtp_host=config.ASTERAMISK_HOST, local_rtp_port=udp_port)
 
         self.channel.on_event('StasisEnd', lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
