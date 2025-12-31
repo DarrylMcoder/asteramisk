@@ -274,7 +274,7 @@ class VoiceUI(UI):
                                 if event.data.type == "raw_server_event":
                                     logger.debug(f"     {event.data.data['type']}")
                             elif event.type == "error":
-                                logger.error(f"OpenAI session error: {event}")
+                                logger.debug(f"OpenAI session error: {event}")
                 else:
                     raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
             finally:
