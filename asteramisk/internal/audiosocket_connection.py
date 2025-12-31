@@ -309,9 +309,8 @@ class AudioSocketConnectionAsync(AsyncClass):
         if not self.connected:
             raise InvalidStateException("Unable to write audio. Connection is not connected")
         if self._to_asterisk_resampler:
-            async with self._to_asterisk_resampler_lock:
-                self._to_asterisk_resampler.stdin.write(data)
-                await self._to_asterisk_resampler.stdin.drain()
+            self._to_asterisk_resampler.stdin.write(data)
+            await self._to_asterisk_resampler.stdin.drain()
         else:
             await self._write_to_tx_queue(data)
 
