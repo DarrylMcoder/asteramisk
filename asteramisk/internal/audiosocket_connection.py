@@ -180,7 +180,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         await process.stdin.wait_closed()
 
         # Read to EOF from stdout so that it won't get stuck
-        _ = await process.stdout.read()
+        #_ = await process.stdout.read()
         
         # Try to terminate the process gracefully
         process.terminate()
@@ -218,8 +218,7 @@ class AudioSocketConnectionAsync(AsyncClass):
                 self._rx_q.task_done()
         finally:
             # Clean up the resources we use in this task
-            async with self._from_asterisk_resampler_lock:
-                await self._stop_process(self._from_asterisk_resampler)
+            await self._stop_process(self._from_asterisk_resampler)
             self._from_asterisk_resampler = None
             logger.debug("AsyncConnection._rx_resample_task: done")
 
@@ -249,8 +248,7 @@ class AudioSocketConnectionAsync(AsyncClass):
                 await self._write_to_tx_queue(audio)
         finally:
             # Clean up the resources we use in this task
-            async with self._to_asterisk_resampler_lock:
-                await self._stop_process(self._to_asterisk_resampler)
+            await self._stop_process(self._to_asterisk_resampler)
             self._to_asterisk_resampler = None
             logger.debug("AsyncConnection._tx_resample_task: done")
 
