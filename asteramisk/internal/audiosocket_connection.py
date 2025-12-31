@@ -218,7 +218,8 @@ class AudioSocketConnectionAsync(AsyncClass):
                 self._rx_q.task_done()
         finally:
             # Clean up the resources we use in this task
-            await self._stop_process(self._from_asterisk_resampler)
+            async with self._from_asterisk_resampler_lock:
+                await self._stop_process(self._from_asterisk_resampler)
             self._from_asterisk_resampler = None
             logger.debug("AsyncConnection._rx_resample_task: done")
 
@@ -243,11 +244,13 @@ class AudioSocketConnectionAsync(AsyncClass):
         )
         try:
             while self.connected:
-                audio = await self._to_asterisk_resampler.stdout.read(PACKET_LENGTH)
+                async with self._to_asterisk_resampler_lock:
+                    audio = await self._to_asterisk_resampler.stdout.read(PACKET_LENGTH)
                 await self._write_to_tx_queue(audio)
         finally:
             # Clean up the resources we use in this task
-            await self._stop_process(self._to_asterisk_resampler)
+            async with self._to_asterisk_resampler_lock:
+                await self._stop_process(self._to_asterisk_resampler)
             self._to_asterisk_resampler = None
             logger.debug("AsyncConnection._tx_resample_task: done")
 
@@ -285,9 +288,10 @@ class AudioSocketConnectionAsync(AsyncClass):
         if not self.connected:
             raise InvalidStateException("Unable to read audio. Connection is not connected")
         if self._from_asterisk_resampler:
+            bytes_to_read = int(PACKET_LENGTH * self._from_asterisk_resample_factor)
             async with self._from_asterisk_resampler_lock:
-                bytes_to_read = int(PACKET_LENGTH * self._from_asterisk_resample_factor)
-                return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
+                data = await self._from_asterisk_resampler.stdout.read(bytes_to_read)
+            return data
         else:
             audio = await self._rx_q.get()
             self._rx_q.task_done()
