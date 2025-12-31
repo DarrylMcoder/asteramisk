@@ -229,7 +229,6 @@ class VoiceUI(UI):
                 if isinstance(agent, Agent):
                     await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
                 elif isinstance(agent, RealtimeAgent):
-                    RealtimeAgent(
                     await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
                     if model is None:
                         # Use the cheaper mini model rather than the default GPT-4o

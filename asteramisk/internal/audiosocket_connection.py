@@ -31,7 +31,9 @@ types = types_struct()
 # to 320 bytes, which is the required payload size when
 # sending audio back to AudioSocket for playback on the
 # bridged channel. Sending more or less data will result in distorted sound
-PCM_SIZE = (320).to_bytes(2, 'big')
+
+PACKET_LENGTH = 320
+PCM_SIZE = (PACKET_LENGTH).to_bytes(2, 'big')
 
 
 # Similar to one above, this holds all the possible
@@ -157,7 +159,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         if len(data) < 3:
             print('[AUDIOSOCKET WARNING] The data received was less than 3 bytes, ' +
                   'the minimum length data from Asterisk AudioSocket should be.')
-            return b'\x00', 0, bytes(320)
+            return b'\x00', 0, bytes(PACKET_LENGTH)
         else:
             return data[:1], int.from_bytes(data[1:3], 'big'), data[3:]
 
@@ -241,7 +243,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         )
         try:
             while self.connected:
-                audio = await self._to_asterisk_resampler.stdout.read(320)
+                audio = await self._to_asterisk_resampler.stdout.read(PACKET_LENGTH)
                 await self._write_to_tx_queue(audio)
         finally:
             # Clean up the resources we use in this task
@@ -251,23 +253,23 @@ class AudioSocketConnectionAsync(AsyncClass):
 
     async def _write_to_tx_queue(self, audio):
         """
-        Write audio to the send queue, chunkify it if it is greater than 320 bytes
+        Write audio to the send queue, chunkify it if it is greater than PACKET_LENGTH bytes
         """
         # Add the extra data from last time
         audio = self._tx_extra_data + audio
         self._tx_extra_data = b''
-        # If the audio data is greater than 320 bytes, write it in 320 byte chunks
-        if len(audio) > 320:
-            for i in range(0, len(audio), 320):
-                chunk = audio[i : i + 320]
-                if len(chunk) == 320:
+        # If the audio data is greater than PACKET_LENGTH bytes, write it in PACKET_LENGTH byte chunks
+        if len(audio) > PACKET_LENGTH:
+            for i in range(0, len(audio), PACKET_LENGTH):
+                chunk = audio[i : i + PACKET_LENGTH]
+                if len(chunk) == PACKET_LENGTH:
                     await self._tx_q.put(chunk)
-                elif len(chunk) < 320:
+                elif len(chunk) < PACKET_LENGTH:
                     self._tx_extra_data = chunk
                     break
                 else:
-                    raise ValueError("Audio chunk is greater than 320 bytes")
-        elif len(audio) < 320:
+                    raise ValueError("Audio chunk is greater than PACKET_LENGTH bytes")
+        elif len(audio) < PACKET_LENGTH:
             self._tx_extra_data = audio
         else:
             await self._tx_q.put(audio)
@@ -284,7 +286,7 @@ class AudioSocketConnectionAsync(AsyncClass):
             raise InvalidStateException("Unable to read audio. Connection is not connected")
         if self._from_asterisk_resampler:
             async with self._from_asterisk_resampler_lock:
-                bytes_to_read = int(320 * self._from_asterisk_resample_factor)
+                bytes_to_read = int(PACKET_LENGTH * self._from_asterisk_resample_factor)
                 return await self._from_asterisk_resampler.stdout.read(bytes_to_read)
         else:
             audio = await self._rx_q.get()
@@ -348,12 +350,12 @@ class AudioSocketConnectionAsync(AsyncClass):
                         async with self._lock:
                             # If the connection is closed, the socket will be closed next time around in receive part of loop
                             with suppress(ConnectionResetError):
-                                await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(320))
+                                await self._loop.sock_sendall(self.conn, types.audio + PCM_SIZE + bytes(PACKET_LENGTH))
                     else:
                         audio_data = await self._tx_q.get()
-                        if len(audio_data) > 320:
-                            logger.warning("Audio data is greater than 320 bytes, truncating to 320 bytes")
-                            audio_data = audio_data[:320]
+                        if len(audio_data) > PACKET_LENGTH:
+                            logger.warning("Audio data is greater than PACKET_LENGTH bytes, truncating to PACKET_LENGTH bytes")
+                            audio_data = audio_data[:PACKET_LENGTH]
 
                         async with self._lock:
                             # If the connection is closed, the socket will be closed next time around in receive part of loop
