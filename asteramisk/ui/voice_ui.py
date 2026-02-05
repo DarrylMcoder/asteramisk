@@ -138,16 +138,18 @@ class VoiceUI(UI):
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self.text_out_queue.put(text)
 
-    async def prompt(self, text):
+    async def prompt(self, text, hint_phrases=[], hint_boost=10.0):
         """
         Prompt the user for input
         :param text: Text to prompt the user
+        :param hint_phrases: list Biases the transcription towards these phrases
+        :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely
         :return: The user's input
         """
         logger.debug(f"VoiceUI.prompt: {text}")
         await self._done_speaking()
         await self.say(text)
-        transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn)
+        transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn, hint_phrases=hint_phrases, hint_boost=hint_boost)
         logger.debug(f"VoiceUI.prompt transcription: {transcription}")
         # Immediately stop audio playback when we get the transcription
         await self.audconn.clear_send_queue()
@@ -255,9 +257,15 @@ class VoiceUI(UI):
                             # Directly pass audio from the UI to the OpenAI session
                             while self.is_active and self.audconn.connected:
                                 logger.debug("audio_loop: Waiting for audio")
-                                audio = await self.audconn.read()
                                 try:
+                                    audio = await asyncio.wait_for(self.audconn.read(), timeout=1.0)
                                     await session.send_audio(audio)
+                                except asyncio.TimeoutError:
+                                    logger.debug("audio_loop: Timed out waiting for audio")
+                                    continue
+                                except asyncio.CancelledError:
+                                    logger.debug("audio_loop: Cancelled")
+                                    break
                                 except websockets.exceptions.ConnectionClosed:
                                     break
                         self._audio_task = asyncio.create_task(audio_loop())
@@ -271,12 +279,17 @@ class VoiceUI(UI):
                                 await self.audconn.clear_send_queue()
                             elif event.type == "raw_model_event":
                                 logger.debug(f"  {event.data.type}")
+                                if event.data.type == "exception":
+                                    raise Exception(event.data.data)
                                 if event.data.type == "raw_server_event":
                                     logger.debug(f"     {event.data.data['type']}")
                             elif event.type == "error":
                                 logger.debug(f"OpenAI session error: {event}")
                 else:
                     raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
+            except websockets.exceptions.ConnectionClosed as e:
+                close_code, close_reason = e.rcvd.code, e.rcvd.reason if e.rcvd_then_sent else e.sent.code, e.sent.reason
+                logger.debug(f"Websocket connection closed: {close_code} {close_reason}")
             finally:
                 # Clean up agent resources
                 if hasattr(self, "_audio_task") and self._audio_task is not None:

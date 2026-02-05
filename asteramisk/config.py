@@ -6,9 +6,9 @@ class Config:
 
     ASTERISK_AMI_PORT = os.getenv('ASTERISK_AMI_PORT', '5038')
     """ The port where asterisk is listening for AMI commands. Default is 5038 """
-    ASTERISK_AMI_USER = os.getenv('ASTERISK_AMI_USER', 'asteramisk')
+    ASTERISK_AMI_USER = os.getenv('ASTERISK_AMI_USER')
     """ The username to use when connecting to Asterisk Manager Interface. This needs to be configured in manager.conf on the asterisk server """
-    ASTERISK_AMI_PASS = os.getenv('ASTERISK_AMI_PASS', 'asteramisk')
+    ASTERISK_AMI_PASS = os.getenv('ASTERISK_AMI_PASS')
     """ The password to use when connecting to Asterisk Manager Interface. This needs to be configured in manager.conf on the asterisk server """
 
     ASTERISK_ARI_PORT = os.getenv('ASTERISK_ARI_PORT', '8088')
@@ -18,9 +18,9 @@ class Config:
     ASTERISK_ARI_PASS = os.getenv('ASTERISK_ARI_PASS')
     """ The password to use when connecting to Asterisk REST API. This needs to be configured in ari.conf on the asterisk server """
 
-    ASTERISK_INCOMING_CALL_CONTEXT = os.getenv('ASTERISK_INCOMING_CALL_CONTEXT', 'asteramisk-incoming-call')
+    ASTERISK_INCOMING_CALL_CONTEXT = os.getenv('ASTERISK_INCOMING_CALL_CONTEXT')
     """ The context to which your Asterisk PSTN endpoint will send incoming calls. This is the context=your_context line in pjsip.conf under your PSTN endpoint configuration """
-    ASTERISK_INCOMING_TEXT_CONTEXT = os.getenv('ASTERISK_INCOMING_TEXT_CONTEXT', 'asteramisk-incoming-text')
+    ASTERISK_INCOMING_TEXT_CONTEXT = os.getenv('ASTERISK_INCOMING_TEXT_CONTEXT')
     """ The context to which your Asterisk PSTN endpoint will send incoming text messages. This is the message_context=your_context line in pjsip.conf under your PSTN endpoint configuration """
     ASTERISK_PSTN_ENDPOINT = os.getenv('ASTERISK_PSTN_ENDPOINT', 'pstn_endpoint')
     """ The name of your PSTN endpoint as configured in pjsip.conf """
