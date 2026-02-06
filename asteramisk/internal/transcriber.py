@@ -4,6 +4,9 @@ from google.api_core.exceptions import OutOfRange
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 
+import logging
+logger = logging.getLogger(__name__)
+
 class TranscribeEngine(AsyncClass):
     client = None
 
@@ -19,9 +22,12 @@ class TranscribeEngine(AsyncClass):
             streaming_config=speech.StreamingRecognitionConfig(
                 config=speech.RecognitionConfig(
                     encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                    speech_contexts=[speech.SpeechContext(
-                        phrases=phrases
-                    )]
+                    speech_contexts=[
+                        speech.SpeechContext(
+                            phrases=hint_phrases,
+                            boost=hint_boost
+                        )
+                    ],
                     model="phone_call",
                     sample_rate_hertz=8000,
                     enable_automatic_punctuation=True,
