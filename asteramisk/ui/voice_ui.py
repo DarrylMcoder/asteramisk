@@ -327,7 +327,7 @@ class VoiceUI(UI):
                 logger.debug("VoiceUI.disconnect_openai_agent: waiting for _agent_task to finish")
                 await self._agent_task
 
-    async def bridge(self, ui: VoiceUI, absorbDTMF: bool = False, mute: bool = False):
+    async def bridge(self, ui, absorbDTMF: bool = False, mute: bool = False):
         """
         Bridges two voice UIs together
         Media will flow between the two UIs
@@ -343,7 +343,7 @@ class VoiceUI(UI):
             raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
 
 
-    async def unbridge(self, ui: VoiceUI):
+    async def unbridge(self, ui):
         """
         Disconnect a previously bridged UI.
         Media will cease to flow between them
