@@ -327,16 +327,17 @@ class VoiceUI(UI):
                 logger.debug("VoiceUI.disconnect_openai_agent: waiting for _agent_task to finish")
                 await self._agent_task
 
-    async def bridge(self, ui: VoiceUI):
+    async def bridge(self, ui: VoiceUI, absorbDTMF: bool = False, mute: bool = False):
         """
         Bridges two voice UIs together
         Media will flow between the two UIs
         :param ui: The UI to bridge to
         :return: None
         """
+
         if ui.ui_type == self.UIType.VOICE:
             # Add the new UI to this UI's bridge
-            await self._bridge.addChannel(channel=ui.channel.id)
+            await self._bridge.addChannel(channel=ui.channel.id, absorbDTMF=absorbDTMF, mute=mute)
             self._bridged_uis.append(ui)
         else:
             raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
