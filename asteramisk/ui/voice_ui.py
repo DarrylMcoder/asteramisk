@@ -332,10 +332,16 @@ class VoiceUI(UI):
         Bridges two voice UIs together
         Media will flow between the two UIs
         :param ui: The UI to bridge to
+        :param absorbDTMF: Whether to absorb (ignore or disable) DTMF events from 'ui'
+        :param mute: Whether to mute audio from 'ui'
         :return: None
         """
 
         if ui.ui_type == self.UIType.VOICE:
+            # ARI doesn't take bools but 'True'/'False' strings. 
+            absorbDTMF = "True" if absorbDTMF else "False"
+            mute = "True" if mute else "False"
+
             # Add the new UI to this UI's bridge
             await self._bridge.addChannel(channel=ui.channel.id, absorbDTMF=absorbDTMF, mute=mute)
             self._bridged_uis.append(ui)
