@@ -44,6 +44,7 @@ class VoiceUI(UI):
             data=stream_id)
 
         self._bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
+        self._bridged_uis = []
 
         await self._bridge.addChannel(channel=self.external_media_channel.id)
         await self._bridge.addChannel(channel=self.channel.id)
@@ -326,20 +327,33 @@ class VoiceUI(UI):
                 logger.debug("VoiceUI.disconnect_openai_agent: waiting for _agent_task to finish")
                 await self._agent_task
 
-    async def bridge(self, ui, absorbDTMF: bool=False, mute: bool=False):
+    async def bridge(self, ui: VoiceUI):
         """
         Bridges two voice UIs together
         Media will flow between the two UIs
         :param ui: The UI to bridge to
-        :param absorbDTMF: Bool whether or not to silence DTMF coming from this channel
-        :param mute: Bool whether or not to mute the audio coming from this channel
         :return: None
         """
         if ui.ui_type == self.UIType.VOICE:
             # Add the new UI to this UI's bridge
-            await self._bridge.addChannel(channel=ui.channel.id, absorbDTMF=absorbDTMF, mute=mute)
+            await self._bridge.addChannel(channel=ui.channel.id)
+            self._bridged_uis.append(ui)
         else:
             raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
+
+
+    async def unbridge(self, ui: VoiceUI):
+        """
+        Disconnect a previously bridged UI.
+        Media will cease to flow between them
+        :param: ui: Previously bridged UI to unbridge from
+        :return: None
+        :raise: ValueError: If no such Ui was ever bridged
+        """
+        if ui not in self._bridged_uis:
+            raise ValueError("No such UI was ever bridged. Unable to unbridge")
+        await self._bridge.removeChannel(channel=ui.channel.id)
+        self._bridged_uis.remove(ui)
 
     ### Voice UI specific methods ###
 
