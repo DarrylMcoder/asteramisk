@@ -339,7 +339,7 @@ class VoiceUI(UI):
         mute = 1 if mute else 0
         if ui.ui_type == self.UIType.VOICE:
             # Add the new UI to this UI's bridge
-            await self._bridge.addChannel(channel=ui.channel.id, absorbDTMF=absorbDTMF, mute=mute)
+            await self._bridge.addChannel(channel=ui.channel.id, absorbDTMF=absorbDTMF, mute=True)
         else:
             raise ValueError("Can only bridge VoiceUIs to VoiceUIs")
 
