@@ -26,10 +26,10 @@ class VoiceUI(UI):
     Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()
     API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)
     """
-    async def __create__(self, channel: aioari.model.Channel, voice=config.SYSTEM_VOICE):
+    async def __create__(self, channel: aioari.model.Channel, voice=None):
         logger.debug("VoiceUI.__create__")
         self.channel = channel
-        self.voice = voice
+        self.voice = voice if voice else config.SYSTEM_VOICE
         self.answered = False
         self.is_active = True
         self.ari: aioari.Client = await AriClient.create()
