@@ -88,6 +88,17 @@ class TTSEngine(AsyncSingleton):
             audio = await self._free_tts(text)
         else:
             audio = await self._premium_tts(text, voice)
+
+        # Trim the chirp 
+        if audio and len(audio) > 0:
+            audio_segment = AudioSegment(
+                data=audio,
+                sample_width=2,
+                frame_rate=8000,
+                channels=1
+            )
+            # Trim chirp (first 80 ms)
+            audio = audio_segment[80:].raw_data
         if save_to_cache:
             self.cache_tasks.append(asyncio.create_task(self.save_to_cache(audio, text, voice)))
         if not audio or len(audio) == 0:
