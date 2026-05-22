@@ -99,10 +99,6 @@ class Communicator(AsyncClass):
             recipient_number = str(recipient_number)
             channel = f"PJSIP/{recipient_number}@{config.ASTERISK_PSTN_ENDPOINT}"
 
-        if callerid_number and len(callerid_number) != 10:
-            logger.warning(f"Caller ID number {callerid_number} is not 10 digits. It will not work. Will be replaced with default number.")
-            callerid_number = config.SYSTEM_PHONE_NUMBER
-
         if not callerid_name:
             raise asteramisk.exceptions.ConfigurationException("Caller ID name is not set. This will not work unless this is a call to a local extension on our system.")
         if not callerid_number:
@@ -110,6 +106,10 @@ class Communicator(AsyncClass):
 
         # Convert to string in case its int
         callerid_number = str(callerid_number)
+
+        if callerid_number and len(callerid_number) != 10:
+            logger.warning(f"Caller ID number {callerid_number} is not 10 digits. It will not work. Will be replaced with default number.")
+            callerid_number = config.SYSTEM_PHONE_NUMBER
 
         logger.info(f"Making call to {recipient_number} on channel {channel}")
 
