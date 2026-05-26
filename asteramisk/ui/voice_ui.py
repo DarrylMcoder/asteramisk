@@ -49,7 +49,7 @@ class VoiceUI(UI):
         await self._bridge.addChannel(channel=self.external_media_channel.id)
         await self._bridge.addChannel(channel=self.channel.id)
         self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
-        self.channel.on_event('StasisEnd', lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
+        self.channel.on_event("StasisEnd", lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
         self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
         self.tts_engine: TTSEngine = await TTSEngine.create()
         self.transcribe_engine: TranscribeEngine = await TranscribeEngine.create()
@@ -108,14 +108,13 @@ class VoiceUI(UI):
             # Wait for the audio to finish playing
             await self._done_speaking()
 
-        # Stop the agent if connected
-        await self.disconnect_openai_agent(wait=wait)
-
-        # Cancel the main task, which handles any cleanup in its finally block
+        # Cancel all tasks related to the call
         self.out_media_task.cancel()
         with suppress(asyncio.CancelledError):
-            logger.debug("VoiceUI.hangup: waiting for out_media_task to finish")
+            logger.debug("VoiceUI.hangup: awaiting _out_media_task")
             await self.out_media_task
+
+        # Resources are cleaned up in _out_media_exchanger's finally block
 
     async def say(self, text) -> None:
         """
@@ -413,11 +412,10 @@ class VoiceUI(UI):
 
     ### Callbacks ###
 
-    async def _on_channel_stasis_end(self, objs, event):
+    async def _on_channel_stasis_end(self, channel, event):
         logger.debug("VoiceUI._on_channel_stasis_end")
-        logger.info("Caller has hung up, so we are also hanging up")
-        # The call has ended, clean up
         await self.hangup(wait=False)
+        self.is_active = False
 
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
@@ -503,8 +501,11 @@ class VoiceUI(UI):
                 await self.audconn.drain_send_queue()
                 await self.audconn.write(audio)
                 self.text_out_queue.task_done()
+        except asyncio.CancelledError:
+            logger.debug("VoiceUI._out_media_exchanger: Cancelled. Exiting")
+            raise
         finally:
-            logger.debug("VoiceUI._out_media_exchanger: Exiting")
+            logger.debug("VoiceUI._out_media_exchanger: Performing final cleanup")
             await self.audconn.close()
             await self.tts_engine.close()
             # Clean up ARI resources
@@ -514,4 +515,8 @@ class VoiceUI(UI):
                 await self.external_media_channel.hangup()
             with suppress(aiohttp.web_exceptions.HTTPNotFound):
                 await self.channel.hangup()
+            # Hangup any bridged UIs
+            for ui in self._bridged_uis:
+                await ui.hangup()
+            # Set the active flag to false
             self.is_active = False

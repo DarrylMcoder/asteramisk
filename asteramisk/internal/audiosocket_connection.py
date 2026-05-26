@@ -312,7 +312,7 @@ class AudioSocketConnectionAsync(AsyncClass):
         else:
             await self._write_to_tx_queue(data)
 
-    async def hangup(self):
+    async def send_hangup(self):
         """
         Send a hangup command to asterisk
         This absolutely MUST be called before closing the connection
@@ -380,10 +380,11 @@ class AudioSocketConnectionAsync(AsyncClass):
                 else:
                     logger.warning(f"Unknown type byte: {type_byte}")
         except asyncio.CancelledError:
+            logger.debug("AsyncConnection._process: cancelled, exiting")
             raise
         finally:
-            # Send hangup
-            await self.hangup()
+            # Send hangup command. If we don't do this, asterisk will go into some weird state consuming 100% CPU
+            await self.send_hangup()
             # Give the hangup time to be sent
             await asyncio.sleep(0.2)
             # Close the connection

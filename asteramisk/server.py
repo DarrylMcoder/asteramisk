@@ -6,6 +6,7 @@ import panoramisk.fast_agi
 import panoramisk.actions
 import panoramisk.manager
 
+from contextlib import suppress
 from asteramisk.config import config
 from asteramisk.ui import VoiceUI, TextUI
 from asteramisk.internal.message_broker import MessageBroker
@@ -81,6 +82,9 @@ class Server(AsyncClass):
         if not self.stasis_app:
             # Unique ID for Stasis application so that there are no conflicts with multiple instances
             self.stasis_app = uuid.uuid4().hex
+        
+        # Create a dictionary of {channel_id: asyncio.Task} to store the handler tasks for each channel
+        self.handler_tasks = {}
 
     async def register_extension(self, extension, call_handler=None, message_handler=None):
         """
@@ -215,6 +219,7 @@ class Server(AsyncClass):
         if not os.geteuid() == 0:
             raise Exception("Must be run as root")
         self.ari.on_channel_event("StasisStart", self._ari_stasis_start_handler)
+        self.ari.on_channel_event("StasisEnd", self._ari_stasis_end_handler)
         try:
             await self.ari.run(
                 apps=[
@@ -223,22 +228,39 @@ class Server(AsyncClass):
                 ]
             )
         finally:
-            await self.unregister_all_extensions()
-            await self.audiosocket.close()
-            await self.ari.close()
+            await self.close()
 
     async def close(self):
         """
         Close the server. Is an async method
         """
+        await self.unregister_all_extensions()
         await self.audiosocket.close()
         await self.ari.close()
+        # Cancel all tasks; hangup all calls
+        for task in self.handler_tasks.values():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def _ari_stasis_start_handler(self, objs, event):
         if event['application'] == self.stasis_app:
-            asyncio.create_task(self._main_handler(objs, event))
+            task = asyncio.create_task(self._main_handler(objs, event))
+            self.handler_tasks[objs['channel'].id] = task
         else:
             logger.debug(f"Application {event['application']} has no handler. Probably ok if the code that created it is also controlling it")
+
+    async def _ari_stasis_end_handler(self, channel: aioari.model.Channel, event):
+        logger.debug(f"Stasis end for channel {channel.json['name']}")
+        if event['application'] == self.stasis_app:
+            if channel.id in self.handler_tasks:
+                logger.debug(f"Canceling task for channel {channel.id}")
+                self.handler_tasks[channel.id].cancel()
+                with suppress(asyncio.CancelledError):
+                    await self.handler_tasks[channel.id]
+                del self.handler_tasks[channel.id]
+            else:
+                logger.warning(f"Channel {channel.id} hung up but no task found for it.")
 
     async def _main_handler(self, objs, event):
         """
@@ -248,10 +270,17 @@ class Server(AsyncClass):
         """
         channel = objs['channel']
         extension_type = event['args'][0]
-        if extension_type == 'call':
-            await self._call_request_handler(channel)
-        elif extension_type == 'text':
-            await self._message_request_handler(channel)
+       # Try/except is very important here, even though it doesn't do much
+        # Without this, any uncaught exception will just be swallowed and the call will just kinda hang.
+        try:
+            if extension_type == 'call':
+                await self._call_request_handler(channel)
+            elif extension_type == 'text':
+                await self._message_request_handler(channel)
+            else:
+                raise Exception(f"Unknown extension type {extension_type}")
+        except Exception as e:
+            logger.exception(e)
 
     async def _call_request_handler(self, channel: aioari.model.Channel):
         """
@@ -262,27 +291,32 @@ class Server(AsyncClass):
         """
 
         # Check if we are overloaded
-        try:
-            await asyncio.wait_for(self.call_semaphore.acquire(), timeout=0.1)
-
-        except asyncio.TimeoutError:
+        if self.call_semaphore.locked():
             logger.error("Call semaphore is full, dropping call")
-            # Simply return without hanging up. 
-            # This allows another node to pick up the call if multiple instances are running. e.g. docker swarm
+            # Don't hang up, but continue in the dialplan
+            # This allows another node, registered at the next priority, to pick up the call if multiple instances are running. e.g. docker swarm
             # If no other instance is running, the call will hang up anyway
             await channel.continueInDialplan()
             return
 
         else:
-            # If the try succeeds, we are not overloaded
-            ui = await VoiceUI.create(channel)
-            extension = (await channel.getChannelVar(variable="EXTEN"))['value']
-            call_handler, _ = self.handlers[extension]
-            await call_handler(ui)
+            # Semaphore is not locked, we are not overloaded
+            async with self.call_semaphore:
+                # Create a new UI for the call
+                ui = await VoiceUI.create(channel)
 
-        finally:
-            # Release here as well. Should only have been acquired if we are not overloaded
-            self.call_semaphore.release()
+                # Get the extension that was dialled and call the handler for it.
+                extension = (await channel.getChannelVar(variable="EXTEN"))['value']
+                call_handler, _ = self.handlers[extension]
+                try:
+                    await call_handler(ui)
+                except Exception as e:
+                    logger.exception(e)
+                    # Let the user know that something went wrong
+                    await ui.say("An error has occurred while handling your call. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
+                finally:
+                    # Always hang up at the end
+                    await ui.hangup()
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
         """
@@ -300,26 +334,32 @@ class Server(AsyncClass):
             # Existing conversation, use the existing UI and simply pass the message to it via the broker
             await broker.message_received(phone_number, message)
         else:
-            # New conversation
-
+            # New text message conversation
+            # Seems redundant, but needs to be called after the has_conversation check
+            # Otherwise, a UI is never created and no one will consume the broker's message queue
+            await broker.message_received(phone_number, message)
             # Check if we are overloaded
-            try:
-                await asyncio.wait_for(self.message_semaphore.acquire(), timeout=0.1)
-            except asyncio.TimeoutError:
+            if self.message_semaphore.locked():
                 logger.error("Message semaphore is full, dropping message.")
-                # Simply return without doing anything.
+                # Continue in the dialplan to allow another instance to pick up the message
+                # If no other instance is running, the message will be dropped
                 await channel.continueInDialplan()
                 return
 
             else:
                 # Create a new UI and pass it to the message handler
-                ui = await TextUI.create(phone_number)
-                _, message_handler = self.handlers[extension]
-                await message_handler(ui)
-
-            finally:
-                # Release here as well. Should only have been acquired if we are not overloaded
-                self.message_semaphore.release()
+                async with self.message_semaphore:
+                    ui = await TextUI.create(phone_number)
+                    _, message_handler = self.handlers[extension]
+                    try:
+                        await message_handler(ui)
+                    except Exception as e:
+                        logger.exception(e)
+                        # Let the user know that something went wrong
+                        await ui.say("An error has occurred while handling your message. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
+                    finally:
+                        # Always hang up at the end
+                        await ui.hangup()
 
     async def call_handler(self, ui: VoiceUI):
         """
