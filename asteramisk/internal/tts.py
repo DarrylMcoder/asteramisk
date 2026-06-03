@@ -83,10 +83,17 @@ class TTSEngine(AsyncSingleton):
         """
         logger.debug("TTSEngine.tts: converting text to audio")
         if self.exists_in_cache(text, voice):
-            audio = await self.get_from_cache(text, voice)
-        elif not voice or not config.GOOGLE_APPLICATION_CREDENTIALS:
+            # Use the cached audio if it exists
+            logger.debug("TTSEngine.tts: using cached audio file")
+            return await self.get_from_cache(text, voice)
+
+        # Not cached, convert text to audio
+        audio = None
+        if not voice or not config.GOOGLE_APPLICATION_CREDENTIALS:
+            # Voice not specified or no credentials, so use gTTS which is free and requires no credentials
             audio = await self._free_tts(text)
         else:
+            # Use google cloud tts which requires credentials
             audio = await self._premium_tts(text, voice)
 
         # Trim the chirp 
