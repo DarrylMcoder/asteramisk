@@ -1,7 +1,7 @@
+import asyncio
 import aiohttp
 from typing import Union
 from panoramisk import Manager
-from panoramisk.actions import Action
 
 import asteramisk.ui
 import asteramisk.exceptions
@@ -74,13 +74,15 @@ class Communicator(AsyncClass):
                         recipient_number=None,
                         channel=None,
                         callerid_number=None, # Callerids are None for a reason, so we can use the Communicator instance defaults. See further down
-                        callerid_name=None) -> asteramisk.ui.VoiceUI:
+                        callerid_name=None,
+                        timeout=None) -> asteramisk.ui.VoiceUI:
         """ 
         Makes a call to the recipient and returns a VoiceUI object.
         :param recipient_number: The number to call. Uses PJSIP with voip.ms
         :param channel: The channel to dial for the call. Mutually exclusive with recipient_number
         :param callerid_number: The number to use for the caller ID.
         :param callerid_name: The name to use for the caller ID.
+        :param timeout: The timeout in seconds for the call
         :return: An asteramisk.ui.VoiceUI object.
         :raises ValueError: If neither recipient_number or channel is provided or both are provided
         :raises asteramisk.exceptions.CallFailedException: If the call fails
@@ -113,44 +115,79 @@ class Communicator(AsyncClass):
 
         logger.info(f"Making call to {recipient_number} on channel {channel}")
 
-        originate_action = Action({
-            "Action": "Originate",
-            "Channel": channel,
-            "Application": "Stasis",
-            "Data": "asteramisk",
-            "CallerID": f"{callerid_name} <{callerid_number}>",
-            "Async": True  # This seems to be required.
-        })
+        channel = await self._ari_client.channels.originate(
+            endpoint=channel,
+            app="asteramisk",
+            callerId=f"{callerid_name} <{callerid_number}>",
+            timeout=timeout or config.OUTBOUND_CALL_TIMEOUT
+        )
+        logger.info(f"Created channel {channel.json['name']} with ID {channel.json['id']}")
 
-        response = await self._manager.send_action(originate_action)
-        print("Originate AMI response", response)
-        for event in response:
-            # Check if the call failed
-            if "Event" in event and "Response" in event and \
-                    event["Event"] == "OriginateResponse" and event["Response"] == "Failure":
-                raise asteramisk.exceptions.CallFailedException(f"Failed to make call to {recipient_number}")
-
-        # Get the channel
-        if not hasattr(response[1], "uniqueid") or not response[1].uniqueid:
-            raise asteramisk.exceptions.CallFailedException(f"Failed to get channel for call to {recipient_number or channel}")
-        channel_id = response[1].uniqueid
-
-        print(f"Got channel {channel_id}")
-
-        # TODO: Make this whole method use ARI rather than AMI
-        # I tried to use ARI, but couldn't figure out whether the call was successful or not
-        # It would be possible to use ARI, but this is easier for now
+        # All the following in one try/except block to catch originating UI hangups (asyncio.CancelledError)
         try:
-            await self._ari_client.applications.get(applicationName="asteramisk")
-        except aiohttp.web_exceptions.HTTPNotFound:
-            raise asteramisk.exceptions.AsteramiskException("The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.")
-        ari_channel = await self._ari_client.channels.get(channelId=channel_id)
+            channel_ready = asyncio.Event()
+            channel_destroyed = asyncio.Event()
+            channel_destroyed_cause = None
+            channel_destroyed_cause_txt = None
 
-        ui = await asteramisk.ui.VoiceUI.create(ari_channel)
-        # I know this seems strange, but audio simply won't play via audio socket until we play a sound file like this
-        # This is only a problem on outbound calls
-        await ui.channel.play(media="sound:ascending-2tone")
-        return ui
+            def _on_channel_state_change(channel, event):
+                logger.info(f"Channel state changed to {channel.json['state']}")
+                if channel.json['state'] == "Up":
+                    channel_ready.set()
+
+            def _on_channel_destroyed(channel, event):
+                logger.info(f"Outgoing channel to {recipient_number or channel} destroyed: {event['cause_txt']}")
+                nonlocal channel_destroyed_cause
+                nonlocal channel_destroyed_cause_txt
+                channel_destroyed_cause = event.get("cause")
+                channel_destroyed_cause_txt = event.get("cause_txt")
+                channel_destroyed.set()
+
+            channel.on_event("ChannelStateChange", _on_channel_state_change)
+            channel.on_event("ChannelDestroyed", _on_channel_destroyed)
+
+            logger.info("Registered event handlers. Waiting for events...")
+
+            # Wait for one of the events to complete
+            channel_ready_task = asyncio.create_task(channel_ready.wait())
+            channel_destroyed_task = asyncio.create_task(channel_destroyed.wait())
+
+            done, pending = await asyncio.wait(
+                [channel_ready_task, channel_destroyed_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            logger.info("One of the events completed")
+            logger.info(f"Done: {done}, Pending: {pending}")
+
+            # Cancel the ones that didn't complete
+            for task in pending:
+                task.cancel()
+
+            # Raise an exception if the call failed
+            if channel_ready_task in done:
+                # Call succeeded
+                logger.info(f"Dialled out to {recipient_number or channel} successfully")
+            elif channel_destroyed_task in done:
+                # Call failed
+                logger.info(f"Call to {recipient_number or channel} failed: {channel_destroyed_cause_txt}")
+                raise asteramisk.exceptions.CallFailedException(f"Call to {recipient_number or channel} failed: {channel_destroyed_cause_txt}", cause=channel_destroyed_cause, cause_txt=channel_destroyed_cause_txt)
+
+            try:
+                await self._ari_client.applications.get(applicationName="asteramisk")
+            except aiohttp.web_exceptions.HTTPNotFound:
+                raise asteramisk.exceptions.AsteramiskException("The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.")
+
+            ui = await asteramisk.ui.VoiceUI.create(channel)
+            # I know this seems strange, but audio simply won't play via audio socket until we play a sound file like this
+            # This is only a problem on outbound calls
+            await ui.channel.play(media="sound:ascending-2tone")
+            return ui
+        except asyncio.CancelledError:
+            logger.info("Call to {recipient_number or channel} was cancelled because the originating UI channel was destroyed")
+            # Hangup the outgoing channel
+            await channel.hangup()
+            raise
 
     async def make_text(self,
                         recipient_number, # No reason to make this optional
