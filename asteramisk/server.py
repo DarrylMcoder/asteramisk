@@ -244,6 +244,7 @@ class Server(AsyncClass):
                 await task
 
     async def _ari_stasis_start_handler(self, objs, event):
+        logger.debug(f"Stasis start for channel {objs['channel'].json['name']}")
         if event['application'] == self.stasis_app:
             task = asyncio.create_task(self._main_handler(objs, event))
             self.handler_tasks[objs['channel'].id] = task
@@ -256,8 +257,10 @@ class Server(AsyncClass):
             if channel.id in self.handler_tasks:
                 logger.debug(f"Canceling task for channel {channel.id}")
                 self.handler_tasks[channel.id].cancel()
+                logger.debug(f"Waiting for task for channel {channel.id} to finish")
                 with suppress(asyncio.CancelledError):
                     await self.handler_tasks[channel.id]
+                logger.debug(f"Task for channel {channel.id} finished, removing from handler_tasks")
                 del self.handler_tasks[channel.id]
             else:
                 logger.warning(f"Channel {channel.id} hung up but no task found for it.")
@@ -279,6 +282,12 @@ class Server(AsyncClass):
                 await self._message_request_handler(channel)
             else:
                 raise Exception(f"Unknown extension type {extension_type}")
+        except asyncio.CancelledError:
+            ## CancelledError is raised when the task is cancelled (call hung up)
+            # Let it propagate so that the task is cancelled properly
+            # If we don't do this, the ari event handler's get all hung up and next call will just hang
+            logger.info(f"Task for channel {channel.id} was cancelled")
+            raise
         except Exception as e:
             logger.exception(e)
 
@@ -289,6 +298,7 @@ class Server(AsyncClass):
         Once per call.
         Not a public API function
         """
+        logger.debug(f"Call request for channel {channel.json['name']}")
 
         # Check if we are overloaded
         if self.call_semaphore.locked():
@@ -301,6 +311,7 @@ class Server(AsyncClass):
 
         else:
             # Semaphore is not locked, we are not overloaded
+            logger.info("Entering call semaphore")
             async with self.call_semaphore:
                 # Create a new UI for the call
                 ui = await VoiceUI.create(channel)
@@ -310,6 +321,9 @@ class Server(AsyncClass):
                 call_handler, _ = self.handlers[extension]
                 try:
                     await call_handler(ui)
+                except asyncio.CancelledError:
+                    # CancelledError must be propagated, see note in _main_handler
+                    raise
                 except Exception as e:
                     logger.exception(e)
                     # Let the user know that something went wrong
@@ -353,6 +367,9 @@ class Server(AsyncClass):
                     _, message_handler = self.handlers[extension]
                     try:
                         await message_handler(ui)
+                    except asyncio.CancelledError:
+                        ## CancelledError must be propagated. See note in _main_handler
+                        raise
                     except Exception as e:
                         logger.exception(e)
                         # Let the user know that something went wrong

@@ -63,7 +63,7 @@ class Config:
     LOG_DIR = os.getenv('LOG_DIR', '/var/log/asteramisk')
     """ The directory where asteramisk stores log files. Default is /var/log/asteramisk """
 
-    MAX_CONCURRENT_CALLS = os.getenv('MAX_CONCURRENT_CALLS', 10)
+    MAX_CONCURRENT_CALLS = os.getenv('MAX_CONCURRENT_CALLS', 100)
     """ The maximum number of concurrent calls that can be made at once. Default is 10. """
 
     MAX_CONCURRENT_CONVERSATIONS = os.getenv('MAX_CONCURRENT_CONVERSATIONS', 100)
