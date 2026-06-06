@@ -330,6 +330,7 @@ class Server(AsyncClass):
                     await ui.say("An error has occurred while handling your call. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
                 finally:
                     # Always hang up at the end
+                    logger.debug("Reached finally in call handler. Hanging up")
                     await ui.hangup(wait=False)
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
