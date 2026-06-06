@@ -16,10 +16,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TTSEngine(AsyncSingleton):
-
-    cache = LRUCache(maxsize=1000)
-    # Should maybe have a cache lock but I don't think race conditions are a heavy issue here
-
     async def __create__(self):
         # Create the directory if it doesn't exist
         assert config.ASTERISK_SOUNDS_DIR is not None
@@ -29,6 +25,8 @@ class TTSEngine(AsyncSingleton):
 
         self._client = texttospeech.TextToSpeechAsyncClient()
         self.cache_tasks = []
+        self.cache = LRUCache(maxsize=1000)
+        self._cache_lock = asyncio.Lock()
 
     def _clean_text(self, text) -> str:
         """ Make text more like file name, space to dash, lowercase, remove special characters and punctuation, newlines, tabs """
@@ -49,7 +47,7 @@ class TTSEngine(AsyncSingleton):
 
     async def _premium_tts(self, text, voice=None):
         input = texttospeech.SynthesisInput(text=text)
-        voice = texttospeech.VoiceSelectionParams(
+        voice_params = texttospeech.VoiceSelectionParams(
             language_code='en-US',
             name=voice
         )
@@ -57,7 +55,7 @@ class TTSEngine(AsyncSingleton):
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000
         )
-        response = await self._client.synthesize_speech(input=input, voice=voice, audio_config=audio_config)
+        response = await self._client.synthesize_speech(input=input, voice=voice_params, audio_config=audio_config)
         return response.audio_content
 
     async def _free_tts(self, text):
@@ -75,6 +73,10 @@ class TTSEngine(AsyncSingleton):
             audio = AudioSegment.from_mp3(mp3_fp)
             audio_8khz = audio.set_frame_rate(8000)
             raw_audio = audio_8khz.set_channels(1).set_sample_width(2).raw_data
+
+            del tts
+            del audio
+            mp3_fp.close()
             return raw_audio
 
         return await asyncio.to_thread(sync_tts)
@@ -85,10 +87,10 @@ class TTSEngine(AsyncSingleton):
         """
         logger.debug("TTSEngine.tts: converting text to audio")
         # Check if the audio is cached
-        if await self.exists_in_cache(text, voice):
-            # Use the cached audio if it exists
+        cached_audio = await self.get_from_cache(text, voice)
+        if cached_audio is not None:
             logger.debug("TTSEngine.tts: using cached audio file")
-            return await self.get_from_cache(text, voice)
+            return cached_audio
 
         # Not cached, convert text to audio
         audio = None
@@ -110,8 +112,10 @@ class TTSEngine(AsyncSingleton):
             # Trim chirp (first 80 ms)
             audio = audio_segment[80:].raw_data
         if save_to_cache:
-            # Create a task to save the audio to the cache
-            self.cache_tasks.append(asyncio.create_task(self.save_to_cache(audio, text, voice)))
+            async with self._cache_lock:
+                # Make sure cache_tasks list doesn't grow too long by removing completed tasks
+                self.cache_tasks = [task for task in self.cache_tasks if not task.done()]
+                self.cache_tasks.append(asyncio.create_task(self.save_to_cache(audio, text, voice)))
         if not audio or len(audio) == 0:
             logger.error("TTSEngine.tts: no audio returned")
         return audio
@@ -122,6 +126,15 @@ class TTSEngine(AsyncSingleton):
         return
 
     async def tts_to_file(self, text, voice=None, ast_filename=True):
+        """
+        Convert text to audio and save it to a file
+        :param text: The text to convert to audio
+        :param voice: The voice to use, e.g. 'en-US-Wavenet-A'
+        :param ast_filename: The format of the filename that is returned, If True, the filename will be
+        relative to the asterisk sound directory, and ready for direct use in asterisk. If False, the filename
+        will be the full path to the file.
+        :return: The filename of the audio file.
+        """
         audio = await self.tts(text, voice, save_to_cache=False)
         filename = await self.save_to_cache(audio, text, voice)
         logger.info(f"TTSEngine.tts_to_file: saved audio file to {filename}")
@@ -133,12 +146,13 @@ class TTSEngine(AsyncSingleton):
 
     async def save_to_wav(self, audio, filename, sample_width=2, channels=1, sample_rate=8000):
         def _save_to_wav():
-            with wave.open(f"{config.ASTERISK_SOUNDS_DIR}/{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{filename}.wav", "wb") as f:
+            full_path = f"{config.ASTERISK_SOUNDS_DIR}/{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{filename}.wav"
+            with wave.open(full_path, "wb") as f:
                 f.setnchannels(channels)
                 f.setsampwidth(sample_width)
                 f.setframerate(sample_rate)
                 f.writeframes(audio)
-            return f"{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{filename}"
+            return filename
         return await asyncio.to_thread(_save_to_wav)
 
     async def read_from_wav(self, filename):
@@ -152,15 +166,15 @@ class TTSEngine(AsyncSingleton):
         text_and_voice = f"{text}-{voice}"
         return text_and_voice in self.cache and os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{self.cache[text_and_voice]}.wav")
 
-    async def get_from_cache(self, text, voice='gtts-en-ca') -> str:
-        """ Get the filename of the audio file from the cache, read and return the audio content """
-        logger.debug("TTSEngine.get_from_cache: using cached audio file")
+    async def get_from_cache(self, text, voice='gtts-en-ca'):
         text = self._clean_text(text)
         text_and_voice = f"{text}-{voice}"
-        if self.cache.has(text_and_voice) and os.path.exists(f"{config.ASTERISK_SOUNDS_DIR}/{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{self.cache.get(text_and_voice)}.wav"):
-            return await self.read_from_wav(self.cache.get(text_and_voice))
-        else:
-            raise FileNotFoundError(f"Audio file {text_and_voice} not found in cache")
+        if text_and_voice in self.cache:
+            filename = self.cache[text_and_voice]
+            filepath = f"{config.ASTERISK_SOUNDS_DIR}/{config.ASTERISK_TTS_SOUNDS_SUBDIR}/{filename}.wav"
+            if os.path.exists(filepath):
+                return await self.read_from_wav(filename)
+        return None
 
     async def save_to_cache(self, audio_content, text, voice='gtts-en-ca'):
         """ Save the audio content to the cache """
@@ -173,7 +187,7 @@ class TTSEngine(AsyncSingleton):
             filename = uuid.uuid4().hex
         # Save it so it can later be read and played
         await self.save_to_wav(audio_content, filename, sample_width=2, channels=1, sample_rate=8000)
-        self.cache.put(text_and_voice, filename)
+        self.cache[text_and_voice] = filename
         return filename
 
     async def close(self):
@@ -181,6 +195,7 @@ class TTSEngine(AsyncSingleton):
         Close the TTSEngine and wait for all cache tasks to finish
         """
         logger.debug("TTSEngine.close")
-        # Wait for all cache tasks to finish
-        with suppress(asyncio.CancelledError):
-            await asyncio.gather(*self.cache_tasks)
+        async with self._cache_lock:
+            with suppress(asyncio.CancelledError):
+                await asyncio.gather(*self.cache_tasks)
+            self.cache_tasks = []

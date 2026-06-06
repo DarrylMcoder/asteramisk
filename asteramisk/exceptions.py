@@ -11,8 +11,16 @@ class GoToMainException(AsteramiskException):
     pass
 
 class CallFailedException(AsteramiskException):
-    """ Raised when an outbound call fails """
-    pass
+    """
+    Raised when an outbound call fails.
+    Use the cause and cause_txt fields to get more information.
+    Explanation of the cause field can be found in the Asterisk documentation.
+    cause_txt is a human readable description of the cause
+    """
+    def __init__(self, message, cause=None, cause_txt=None):
+        super().__init__(message)
+        self.cause = cause
+        self.cause_txt = cause_txt
 
 class ConfigurationException(AsteramiskException):
     """ Raised when something is incorrectly configured. E.g. a required configuration variable is missing """
