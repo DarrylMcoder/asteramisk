@@ -321,6 +321,8 @@ class Server(AsyncClass):
                 call_handler, _ = self.handlers[extension]
                 try:
                     await call_handler(ui)
+                    # Give some indication that the call_handler has finished, which is probably not intended
+                    await ui.say("Thank you for calling. Goodbye.")
                 except asyncio.CancelledError:
                     # CancelledError must be propagated, see note in _main_handler
                     raise
@@ -328,10 +330,9 @@ class Server(AsyncClass):
                     logger.exception(e)
                     # Let the user know that something went wrong
                     await ui.say("An error has occurred while handling your call. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
-                finally:
-                    # Always hang up at the end
-                    logger.debug("Reached finally in call handler. Hanging up")
-                    await ui.hangup(wait=False)
+                    # If an error occurs, hang up the call after playing the error message
+                    # Don't do this in finally, cause if its a CancelledError, we don't want to hang up because it already happened and would cause the app to hang
+                    await ui.hangup()
 
     async def _message_request_handler(self, channel: aioari.model.Channel):
         """
