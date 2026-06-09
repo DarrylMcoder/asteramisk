@@ -146,6 +146,11 @@ class Communicator(AsyncClass):
             channel.on_event("ChannelStateChange", _on_channel_state_change)
             channel.on_event("ChannelDestroyed", _on_channel_destroyed)
 
+            #Check if the channel is already up to avoid waiting forever for the event
+            if channel.json['state'] == "Up":
+                logger.info(f"Channel {channel.json['name']} is already up. Setting ready immediately")
+                channel_ready.set()
+
             logger.info("Registered event handlers. Waiting for events...")
 
             # Wait for one of the events to complete
