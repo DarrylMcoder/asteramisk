@@ -125,58 +125,25 @@ class Communicator(AsyncClass):
 
         # All the following in one try/except block to catch originating UI hangups (asyncio.CancelledError)
         try:
-            channel_ready = asyncio.Event()
-            channel_destroyed = asyncio.Event()
-            channel_destroyed_cause = None
-            channel_destroyed_cause_txt = None
 
-            def _on_channel_state_change(channel, event):
-                logger.info(f"Channel state changed to {channel.json['state']}")
-                if channel.json['state'] == "Up":
-                    channel_ready.set()
-
-            def _on_channel_destroyed(channel, event):
-                logger.info(f"Outgoing channel to {recipient_number or channel} destroyed: {event['cause_txt']}")
-                nonlocal channel_destroyed_cause
-                nonlocal channel_destroyed_cause_txt
-                channel_destroyed_cause = event.get("cause")
-                channel_destroyed_cause_txt = event.get("cause_txt")
-                channel_destroyed.set()
-
-            channel.on_event("ChannelStateChange", _on_channel_state_change)
-            channel.on_event("ChannelDestroyed", _on_channel_destroyed)
-
-            #Check if the channel is already up to avoid waiting forever for the event
-            if channel.json['state'] == "Up":
-                logger.info(f"Channel {channel.json['name']} is already up. Setting ready immediately")
-                channel_ready.set()
-
-            logger.info("Registered event handlers. Waiting for events...")
-
-            # Wait for one of the events to complete
-            channel_ready_task = asyncio.create_task(channel_ready.wait())
-            channel_destroyed_task = asyncio.create_task(channel_destroyed.wait())
-
-            done, pending = await asyncio.wait(
-                [channel_ready_task, channel_destroyed_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            # Poll for the channel to be ready
+            start_time = asyncio.get_event_loop().time()
+            timeout = timeout or config.OUTBOUND_CALL_TIMEOUT or 30
+            while asyncio.get_event_loop().time() - start_time < timeout:
+                try:
+                    channel = await self._ari_client.channels.get(channelId=channel.json['id'])
+                    state = channel.json['state']
+                    if state == "Up":
+                        logger.debug(f"Channel {channel.json['name']} is now Up, Detected via polling")
+                        break
+                except aiohttp.web_exceptions.HTTPNotFound:
+                    raise asteramisk.exceptions.CallFailedException("Call failed. Channel destroyed before being ready.")
+                await asyncio.sleep(0.1)
+            else:
+                # Timed out
+                raise asteramisk.exceptions.CallFailedException("Call failed. Reached timeout waiting for channel to be answered.")
             
-            logger.info("One of the events completed")
-            logger.info(f"Done: {done}, Pending: {pending}")
-
-            # Cancel the ones that didn't complete
-            for task in pending:
-                task.cancel()
-
-            # Raise an exception if the call failed
-            if channel_ready_task in done:
-                # Call succeeded
-                logger.info(f"Dialled out to {recipient_number or channel} successfully")
-            elif channel_destroyed_task in done:
-                # Call failed
-                logger.info(f"Call to {recipient_number or channel} failed: {channel_destroyed_cause_txt}")
-                raise asteramisk.exceptions.CallFailedException(f"Call to {recipient_number or channel} failed: {channel_destroyed_cause_txt}", cause=channel_destroyed_cause, cause_txt=channel_destroyed_cause_txt)
+            logger.debug(f"Dialled out to {recipient_number} on channel {channel.json['name']} successfully")
 
             try:
                 await self._ari_client.applications.get(applicationName="asteramisk")
