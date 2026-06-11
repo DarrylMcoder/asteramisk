@@ -198,6 +198,22 @@ class VoiceUI(UI):
         except GeneratorExit:
             pass
 
+    async def read_audio(self):
+        """
+        Returns audio data. Must be called repeatedly to get more audio
+        :return: Audio data
+        """
+        return await self.audconn.read()
+
+    async def write_audio(self, audio):
+        """
+        Writes audio data to be played to the remote party
+        You do not need to worry about timing.
+        Just dump the audio data into this method and it will be played
+        :param audio: Audio data in 8000 Hz PCM
+        """
+        await self.audconn.write(audio)
+
     async def connect_openai_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
         """
         Connects the voice UI to an OpenAI agent
