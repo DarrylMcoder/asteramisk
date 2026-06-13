@@ -2,9 +2,11 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
+import samplerate
 import websockets
-from contextlib import suppress
-from agents import Agent, TContext
+import numpy as np
+from contextlib import suppress, asynccontextmanager
+from agents import Agent, Runner, TContext, SQLiteSession, RunResultStreaming
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.config import config
@@ -19,6 +21,9 @@ from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsyn
 
 import logging
 logger = logging.getLogger(__name__)
+
+ASTERISK_SAMPLE_RATE = 8000
+OPENAI_SAMPLE_RATE = 24000
 
 class VoiceUI(UI):
     """
@@ -57,6 +62,9 @@ class VoiceUI(UI):
         self.dtmf_callbacks = {}
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
+        self.to_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
+        self.from_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
+
         await super().__create__()
 
     @property
@@ -168,6 +176,13 @@ class VoiceUI(UI):
         await self.say(text)
         return await self._get_dtmf(num_digits=num_digits)
 
+    async def send_dtmf(self, digits):
+        """
+        Send dtmf digits to the remote phone
+        :param digits: The digits to send.
+        """
+        await self.channel.sendDTMF(dtmf=digits)
+
     async def ask_yes_no(self, text) -> bool:
         """
         Ask the user a yes/no question
@@ -214,133 +229,130 @@ class VoiceUI(UI):
         """
         await self.audconn.write(audio)
 
-    async def connect_openai_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
+    @asynccontextmanager
+    async def run_realtime_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = {}):
         """
-        Connects the voice UI to an OpenAI agent
-        Example usage:
+        Connects a realtime agent to the UI
+        For cheaper and slower non-realtime agents, use the run_agent method.
+        :param agent: The OpenAI agents.realtime.RealtimeAgent to connect to
+        :param talk_first: Whether or not to cause the agent to speak first. If False, the agent will wait for the user to speak
+        :param model: The openai model to use for the agent
+        :param voice: The voice to use for the agent. Some options are cedar (male) and marin (female)
+        :param context: The context to use for the agent. This is passed to any agent tool calls, etc. Read about it in the OpenAI agents docs
+
+        Use this method almost like you would use the openai agents API
         .. code-block:: python
-            from asteramisk.ui import VoiceUI
-            from asteramisk.server import Server
 
-            async def call_handler(ui: VoiceUI):
-                await ui.answer()
-                await ui.say("Passing control to OpenAI agent")
-                bob = RealtimeAgent(
-                    name="Bob",
-                    instructions="Your agent instructions"
-                )
-                await ui.connect_openai_agent(bob, model="gpt-4o-realtime-preview", voice="Cedar")
-                # Control of the conversation is now passed to the OpenAI agent
-                # You can use OpenAI's tool calling to manage your conversation flow
-                # You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio
+        from asteramisk.ui import VoiceUI
+        from agents.realtime import RealtimeAgent
 
-        :param agent: The OpenAI agent to connect to, either an agents.Agent or agents.realtime.RealtimeAgent
-        :param talk_first: Whether or not the agent should speak first
-        :param model: The OpenAI model to use
-        :param voice: The OpenAI realtime voice to use. Only has an effect if agent is an agents.realtime.RealtimeAgent
-        :return: A task that will run the OpenAI agent. You can await this task to wait for the agent to finish
+        async def call_handler(ui: VoiceUI):
+            await ui.answer()
+            await ui.say("Passing control to OpenAI agent")
+            agent = RealtimeAgent(
+                name="Bob",
+                instructions="Your agent instructions"
+                tools=[]
+            )
+            # OpenAI docs say to use a RealtimeRunner now
+            # runner = RealtimeRunner(starting_agent=agent)
+            # async with await runner.run() as session:
+            #     async for event in session:
+            #         # Do something with the event
+            #         # Handle audio, etc.
+            
+            # If using this library, you can use the run_agent method almost like you would use runner.run()
+            async with await ui.run_agent(agent) as session:
+                async for event in session:
+                    # Do something with the event
+                    # Audio is already handled for you
+                    # Nothing really needs to be done here
+
+        :return: An async generator that yields events from the agent
         """
-        async def _run_agent_task():
-            logger.debug("VoiceUI.connect_openai_agent._run_agent_task")
-            nonlocal model # We might change the model so we need to declare it a nonlocal
-            try:
-                if isinstance(agent, Agent):
-                    await self._run_text_agent(agent=agent, talk_first=talk_first, model=model)
-                elif isinstance(agent, RealtimeAgent):
-                    await self.audconn.set_resampling(rate=24000, channels=1, audio_format="s16le")
-                    if model is None:
-                        # Use the cheaper mini model rather than the default GPT-4o
-                        model = config.DEFAULT_REALTIME_GPT_MODEL
-                    runner = RealtimeRunner(starting_agent=agent, config={
-                        "model_settings": {
-                            "model_name": model,
-                            "modalities": ["text", "audio"],
-                            "voice": voice
-                        }
-                    })
-                    async with await runner.run(context=context) as session:
-                        if talk_first:
-                            # The agent is expected to speak first. E.g. answering a phone call
-                            with suppress(websockets.exceptions.ConnectionClosed):
-                                # Clean up should be handled elsewhere so just swallow the exception
-                                await session.send_message("New call, greet the caller.")
-                        async def dtmf_event_handler(objs, event):
-                            with suppress(websockets.exceptions.ConnectionClosed, AssertionError):
-                                # AssertionError, not connected
-                                await session.send_message(event['digit'])
-                        self.channel.on_event('ChannelDtmfReceived', dtmf_event_handler)
-                        async def audio_loop():
-                            # Directly pass audio from the UI to the OpenAI session
-                            while self.is_active and self.audconn.connected:
-                                logger.debug("audio_loop: Waiting for audio")
-                                try:
-                                    audio = await asyncio.wait_for(self.audconn.read(), timeout=1.0)
-                                    await session.send_audio(audio)
-                                except asyncio.TimeoutError:
-                                    logger.debug("audio_loop: Timed out waiting for audio")
-                                    continue
-                                except asyncio.CancelledError:
-                                    logger.debug("audio_loop: Cancelled")
-                                    break
-                                except websockets.exceptions.ConnectionClosed:
-                                    break
-                        self._audio_task = asyncio.create_task(audio_loop())
-                        async for event in session:
-                            logger.debug(event.type)
-                            if event.type == "audio":
-                                audio = event.audio.data
-                                await self.audconn.write(audio)
-                            elif event.type == "audio_interrupted":
-                                # Audio was interrupted, stop speaking and listen
-                                await self.audconn.clear_send_queue()
-                            elif event.type == "raw_model_event":
-                                logger.debug(f"  {event.data.type}")
-                                if event.data.type == "exception":
-                                    raise Exception(event.data.data)
-                                if event.data.type == "raw_server_event":
-                                    logger.debug(f"     {event.data.data['type']}")
-                            elif event.type == "error":
-                                logger.debug(f"OpenAI session error: {event}")
-                else:
-                    raise ValueError("agent must be an agents.Agent or agents.realtime.RealtimeAgent")
-            except websockets.exceptions.ConnectionClosed as e:
-                close_code, close_reason = e.rcvd.code, e.rcvd.reason if e.rcvd_then_sent else e.sent.code, e.sent.reason
-                logger.debug(f"Websocket connection closed: {close_code} {close_reason}")
-            finally:
-                # Clean up agent resources
-                if hasattr(self, "_audio_task") and self._audio_task is not None:
-                    self._audio_task.cancel()
+
+        if not isinstance(agent, RealtimeAgent):
+            raise ValueError("agent must be an agents.realtime.RealtimeAgent. To use a non-realtime agent, use the run_agent method instead.")
+
+        async def asterisk_to_agent_looper(session):
+            while True:
+                audio = await self.audconn.read()
+                # Convert to 32 bit numpy array for resampling
+                audio_np = np.frombuffer(audio, dtype=np.int16).astype(np.float32)
+
+                # Resample to 24000 Hz
+                from_asterisk_ratio = OPENAI_SAMPLE_RATE / ASTERISK_SAMPLE_RATE
+                resampled = self.from_asterisk_resampler.process(audio_np, from_asterisk_ratio)
+
+                # Convert back to bytes
+                resampled = resampled.astype(np.int16).tobytes()
+                await session.send_audio(resampled)
+        
+        async def _gen():
+            nonlocal model
+            if model is None:
+                model = config.DEFAULT_REALTIME_GPT_MODEL
+            runner = RealtimeRunner(starting_agent=agent, config={
+                "model_settings": {
+                    "model_name": model,
+                    "modalities": ["text", "audio"],
+                    "voice": voice
+                }
+            })
+
+            async with await runner.run(context=context) as session:
+                try:
+                    # Make the agent greet the caller if talk_first
+                    if talk_first:
+                        await session.send_message("New call, greet the caller.")
+
+                    # Start task to send audio from Asterisk to the agent
+                    asterisk_to_agent_task = asyncio.create_task(asterisk_to_agent_looper(session))
+                    async for event in session:
+                        if event.type == "agent_start":
+                            logger.debug(f"Agent started: {event.agent.name}")
+                        elif event.type == "agent_end":
+                            logger.debug(f"Agent ended: {event.agent.name}")
+                        elif event.type == "handoff":
+                            logger.debug(f"Handoff from {event.from_agent.name} to {event.to_agent.name}")
+                        elif event.type == "tool_start":
+                            logger.debug(f"Tool started: {event.tool.name}")
+                        elif event.type == "tool_end":
+                            logger.debug(f"Tool ended: {event.tool.name}. Output: {event.output}")
+                        elif event.type == "audio_end":
+                            logger.debug("Audio ended")
+                        elif event.type == "audio":
+                            # Resample and play the audio
+                            audio = event.audio.data
+                            # Read from buffer as PCM 16-bit and convert to 32-bit for the resampler
+                            audio_np = np.frombuffer(audio, dtype=np.int16).astype(np.int32)
+                            # Calculate the resampling ratio; output_sample_rate / input_sample_rate
+                            to_asterisk_ratio = ASTERISK_SAMPLE_RATE / OPENAI_SAMPLE_RATE
+                            resampled = self.to_asterisk_resampler.process(audio_np, to_asterisk_ratio)
+                            # Convert back to 16-bit PCM bytes for Asterisk
+                            resampled = resampled.astype(np.int16).tobytes()
+                            await self.write_audio(resampled)
+                        elif event.type == "audio_interrupted":
+                            logger.debug("Audio interrupted")
+                            # Stop audio playback
+                            await self.audconn.clear_send_queue()
+                        elif event.type == "error":
+                            pass
+
+                        # Yield the event so the caller can use it
+                        yield event
+
+                finally:
+                    # Agent session ended
+                    asterisk_to_agent_task.cancel()
                     with suppress(asyncio.CancelledError):
-                        await self._audio_task
-                # Stop resampling which is only used for agents
-                await self.audconn.stop_resampling()
-        # end _run_agent_task
+                        await asterisk_to_agent_task
 
-        # Wait for any previously queued audio to finish before connecting
-        await self._done_speaking()
-        # Disconnect any previous agent
-        await self.disconnect_openai_agent()
-        # Run the agent in a separate task
-        self._agent_task = asyncio.create_task(_run_agent_task())
-        return self._agent_task
-
-    async def disconnect_openai_agent(self, wait=True):
-        """
-        Disconnects the voice UI from any currently connected OpenAI agent.
-        Currently quite buggy so use with caution.
-        Once connected, agents generally run until the conversation ends.
-        :param wait: Whether to wait for the agent to finish speaking before disconnecting
-        """
-        logger.debug("VoiceUI.disconnect_openai_agent")
-        if wait:
-            # Wait till the agent has finished speaking
-            await self._done_speaking()
-        # Disconnect the agent
-        if hasattr(self, "_agent_task") and self._agent_task is not None:
-            self._agent_task.cancel()
-            with suppress(asyncio.CancelledError):
-                logger.debug("VoiceUI.disconnect_openai_agent: waiting for _agent_task to finish")
-                await self._agent_task
+        try:
+            yield _gen()
+        finally:
+            # Context manager ended
+            pass
 
     async def bridge(self, ui, absorbDTMF: bool = False, mute: bool = False):
         """

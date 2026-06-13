@@ -1,7 +1,8 @@
 import asyncio
 from typing import Any
-from agents import Agent, SQLiteSession, Runner, RunResult, TContext
+from agents import Agent, SQLiteSession, Runner, RunResult, TContext, RunConfig
 
+from contextlib import suppress, asynccontextmanager
 from asteramisk.config import config
 from asteramisk.exceptions import GoBackException
 from asteramisk.internal.async_class import AsyncClass
@@ -113,64 +114,6 @@ class UI(AsyncClass):
             print(user_input)
         """
         raise NotImplementedError
-
-    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
-        """
-        Connect to an OpenAI agent. Either an agents.Agent or an agents.realtime.RealtimeAgent
-        Example usage:
-        ... code-block:: python
-        import asyncio
-        from agents import Agent
-        from asteramisk import Server
-        from asteramisk.ui import VoiceUI
-
-        agent = Agent(
-            name="Bob",
-            instructions="Your agent instructions"
-        )
-
-        async def call_handler(ui: VoiceUI):
-            await ui.answer()
-            await ui.connect_openai_agent(agent)
-
-        async def main():
-            server = await Server.create()
-            await server.register_extension("1234567890", call_handler)
-            await server.run_forever()
-
-        if __name__ == "__main__":
-            asyncio.run(main())
-
-        :param agent: Agent to connect to
-        :param talk_first: Whether to wait for the agent to speak first
-        :param model: Model to use, defaults to the OpenAI default
-        :param voice: Voice to use, defaults to the OpenAI default
-        :param context: An arbitrary mutable object to pass to the agent. it will be available in any tool calls and event hooks
-        :return: None
-        """
-        raise NotImplementedError
-
-    async def disconnect_openai_agent(self) -> None:
-        """
-        Disconnect any connected OpenAI agent
-        :return: None
-        """
-        raise NotImplementedError
-
-    def has_agent(self) -> bool:
-        """
-        Check if an OpenAI agent is connected
-        :return: True if an OpenAI agent is connected, False otherwise
-        """
-        return hasattr(self, "_agent_task") and self._agent_task is not None
-
-    async def wait_for_agent(self) -> None:
-        """
-        Wait for any connected OpenAI agent to finish
-        :return: None
-        """
-        if self.has_agent():
-            await self._agent_task
 
     async def menu(self, text, callbacks: dict[str, callable] = None, voice_callbacks: dict[str, callable] = None, text_callbacks: dict[str, callable] = None):
         """
@@ -319,31 +262,90 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
-    async def _run_text_agent(self, agent: Agent, talk_first: bool = True, model: str = None) -> None:
-        try:
-            if model is None and not agent.model:
-                # Use the cheaper mini model rather than the default GPT-4o
-                agent.model = config.DEFAULT_GPT_MODEL
-            runner = Runner()
-            sqlite_session = SQLiteSession(session_id=self._unique_id)
-            if talk_first:
-                # The agent is expected to speak first. E.g. answering a phone call
-                result: RunResult = await runner.run(
-                        starting_agent=agent,
-                        session=sqlite_session,
-                        input="New conversation, greet the user."
-                )
-                print("AI:", result.final_output)
-                await self.say(result.final_output)
-            async for user_input in self.input_stream():
-                print("User:", user_input)
-                result: RunResult = await runner.run(
-                        starting_agent=agent,
-                        session=sqlite_session,
-                        input=user_input
-                )
-                logger.debug(f"AI: {result.final_output}")
-                await self.say(result.final_output)
-        finally:
-            sqlite_session.close()
+    @asynccontextmanager
+    async def run_agent(self, agent, talk_first: bool = True, model: str = None, context: TContext = {}):
+        """
+        Connects the voice UI to an OpenAI agent (not realtime)
+        For better performing, but more expensive realtime agents, use the run_realtime_agent method instead
+        :param agent: The OpenAI agents.Agent to connect to
+        :param talk_first: Whether or not to cause the agent to speak first. If False, the agent will wait for the caller to speak first
+        :param model: The OpenAI model to use
+        :param context: The context to pass to the agent. Will be passed to any tools used by the agent
+        :return: An async context manager that returns an async generator
+        Use this method almost like you would use the OpenAI realtime agents API
+        .. code-block:: python
 
+        from asteramisk.ui import VoiceUI
+        from agents import Agent
+
+        async def call_handler(ui: VoiceUI):
+            await ui.answer()
+            async with ui.run_agent(Agent(...)) as session:
+                async for event in session:
+                    # Do something with the event
+                    # These events are simply the ui inputs
+                    # This is only to keep the API consistent with the realtime implementation
+                    # which actually returns events that might be useful.
+        """
+
+        if not isinstance(agent, Agent):
+            raise ValueError("agent must be an agents.Agent. To use a realtime agent, use the run_realtime_agent method instead.")
+
+        async def _gen():
+            nonlocal model
+            if model is None:
+                model = config.DEFAULT_GPT_MODEL
+
+            sqlite_session = SQLiteSession(session_id=self.remote_number)
+            input_handler_task = None
+
+            try:
+                if talk_first:
+                    # The agent is expected to speak first. E.g. answering a phone call
+                    result = await Runner.run(
+                        starting_agent=agent,
+                        input="New conversation, greet the user.",
+                        run_config=RunConfig(model=model),
+                        session=sqlite_session,
+                        context=context
+                    )
+                    await self.say(result.final_output)
+
+                async for transcript in self.input_stream():
+                    result: RunResultStreaming = Runner.run_streamed(
+                        starting_agent=agent,
+                        input=transcript,
+                        run_config=RunConfig(model=model),
+                        session=sqlite_session,
+                        context=context
+                    )
+                    sentence = ""
+                    async for event in result.stream_events():
+                        logger.info(event)
+                        # For voice UIs, we want to stream the agent's response as it comes
+                        # For text UIs, we want to wait for the full response before sending it
+                        if self.ui_type == self.UIType.VOICE:
+                            if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
+                                sentence += event.data.delta
+                                logger.info(event.data.delta)
+                                if sentence.strip().endswith("."):
+                                    await self.say(sentence)
+                                    sentence = ""
+                            if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
+                                # Make sure to send the last sentence just in case it doesn't end with a period
+                                if sentence.strip():
+                                    await self.say(sentence)
+                        elif self.ui_type == self.UIType.TEXT:
+                            if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
+                                await self.say(event.data.text)
+                        yield event
+
+            finally:
+                sqlite_session.close()
+
+        try:
+            # Context manager
+            yield _gen()
+        finally:
+            # Context manager exit
+            pass
