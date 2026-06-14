@@ -6,3 +6,4 @@ gTTS==2.5.4
 panoramisk==1.4
 pydub==0.25.1
 setuptools==80.9.0
+samplerate==0.2.4
