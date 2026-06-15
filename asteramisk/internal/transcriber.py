@@ -76,18 +76,6 @@ class TranscribeEngine(AsyncClass):
         :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely
         :return: str The transcribed text
         """
-        self.is_transcribing = True
-        responses = await self.client.streaming_recognize(
-            requests=self._transcribe_request_generator(stream, hint_phrases, hint_boost),
-        )
-        try:
-            async for response in responses:
-                if response.results and response.results[0].alternatives and response.results[0].alternatives[0].transcript:
-                    if response.results[0].is_final:
-                        transcript = response.results[0].alternatives[0].transcript
-                        yield transcript
-
-        except OutOfRange as e:
-            logger.error(e.message)
-        finally:
-            self.is_transcribing = False
+        while self.is_transcribing:
+            transcript = await self.transcribe_from_stream(stream, hint_phrases, hint_boost)
+            yield transcript
