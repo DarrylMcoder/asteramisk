@@ -1,8 +1,7 @@
-import asyncio
 from typing import Any
-from agents import Agent, SQLiteSession, Runner, RunResult, TContext, RunConfig
+from agents import Agent, SQLiteSession, Runner, TContext, RunConfig, RunResultStreaming
 
-from contextlib import suppress, asynccontextmanager
+from contextlib import asynccontextmanager
 from asteramisk.config import config
 from asteramisk.exceptions import GoBackException
 from asteramisk.internal.async_class import AsyncClass
@@ -297,7 +296,6 @@ class UI(AsyncClass):
                 model = config.DEFAULT_GPT_MODEL
 
             sqlite_session = SQLiteSession(session_id=self.remote_number)
-            input_handler_task = None
 
             try:
                 if talk_first:

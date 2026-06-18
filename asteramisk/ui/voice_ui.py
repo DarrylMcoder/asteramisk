@@ -3,11 +3,10 @@ import uuid
 import aioari
 import asyncio
 import samplerate
-import websockets
 import numpy as np
 from contextlib import suppress, asynccontextmanager
-from agents import Agent, Runner, TContext, SQLiteSession, RunResultStreaming
-from agents.realtime import RealtimeAgent, RealtimeRunner
+from agents import TContext
+from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, RealtimeSessionModelSettings
 
 from asteramisk.config import config
 from asteramisk.ui import UI
@@ -289,16 +288,17 @@ class VoiceUI(UI):
                 await session.send_audio(resampled)
         
         async def _gen():
-            nonlocal model
+            nonlocal model, voice, context
             if model is None:
                 model = config.DEFAULT_REALTIME_GPT_MODEL
-            runner = RealtimeRunner(starting_agent=agent, config={
-                "model_settings": {
-                    "model_name": model,
-                    "modalities": ["text", "audio"],
-                    "voice": voice
-                }
-            })
+
+            runner = RealtimeRunner(starting_agent=agent, config=RealtimeRunConfig(
+                model_settings=RealtimeSessionModelSettings(
+                    model_name=model,
+                    modalities=["audio"],
+                    voice=voice
+                )
+            ))
 
             async with await runner.run(context=context) as session:
                 try:
