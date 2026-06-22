@@ -40,23 +40,6 @@ class TranscribeEngine(AsyncClass):
             audio = await stream.read()
             yield speech.StreamingRecognizeRequest(audio_content=audio)
 
-    async def transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0):
-        """
-        Transcribe audio from a stream
-        :param stream: AudioSocketConnectionAsync The stream to transcribe from
-        :param hint_phrases: list Biases the transcription towards these phrases
-        :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely
-        :return: str The transcribed text
-        """
-        # Wrapper method to set the is_transcribing flag
-        # Cant be done in the internal method because the streaming_transcribe_from_stream method also uses it
-        self.is_transcribing = True
-        try:
-            return await self._transcribe_from_stream(stream, hint_phrases, hint_boost)
-        finally:
-            self.is_transcribing = False
-
-
     async def _transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0):
         try:
             responses = await self.client.streaming_recognize(
@@ -75,6 +58,22 @@ class TranscribeEngine(AsyncClass):
         except OutOfRange as e:
             logger.error(e.message)
 
+    async def transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0):
+        """
+        Transcribe audio from a stream
+        :param stream: AudioSocketConnectionAsync The stream to transcribe from
+        :param hint_phrases: list Biases the transcription towards these phrases
+        :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely
+        :return: str The transcribed text
+        """
+        # Wrapper method to set the is_transcribing flag
+        # Cant be done in the internal method because the streaming_transcribe_from_stream method also uses it
+        self.is_transcribing = True
+        try:
+            return await self._transcribe_from_stream(stream, hint_phrases, hint_boost)
+        finally:
+            self.is_transcribing = False
+
     async def streaming_transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0):
         """
         Async generator that transcribes audio from a stream, yielding the transcribed text as it is spoken
@@ -87,7 +86,7 @@ class TranscribeEngine(AsyncClass):
         self.is_transcribing = True
         try:
             while self.is_transcribing:
-                transcript = await self.transcribe_from_stream(stream, hint_phrases, hint_boost)
+                transcript = await self._transcribe_from_stream(stream, hint_phrases, hint_boost)
                 yield transcript
 
         finally:
