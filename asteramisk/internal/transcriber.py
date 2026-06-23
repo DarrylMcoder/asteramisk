@@ -50,7 +50,6 @@ class TranscribeEngine(AsyncClass):
                 if response.results and response.results[0].alternatives and response.results[0].alternatives[0].transcript:
                     if response.results[0].is_final:
                         transcript = response.results[0].alternatives[0].transcript
-                        self.is_transcribing = False
                         return transcript
 
             return ""
