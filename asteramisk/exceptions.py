@@ -26,6 +26,12 @@ class ConfigurationException(AsteramiskException):
     """ Raised when something is incorrectly configured. E.g. a required configuration variable is missing """
     pass
 
+class GuardrailTriggeredRecoveryException(AsteramiskException):
+    """ 
+    Raised when using AI agents with run_agent() or run_realtime_agent(), when an agent's output gaurdrails are triggered too many times in a row
+    Recovery is attempted and this exception is raised when the recovery fails
+    """
+
 class HangupException(AsteramiskException):
     """ Raised when a method is called on an already hung up UI. Can be used to detect remote hangups """
     pass

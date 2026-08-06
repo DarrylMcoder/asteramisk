@@ -228,6 +228,32 @@ class VoiceUI(UI):
         """
         await self.audconn.write(audio)
 
+    async def done_speaking(self):
+        """
+        Wait for all enqueued audio to finish playing
+        Use after a call to say(), ask_yes_no(), gather(), etc in order to wait till the user has actually heard the text
+        say(), etc by default, will enqueue the text to be played, and return immediately
+        """
+        # Wait till every line of text has been sent to the player
+        await self.text_out_queue.join()
+        # Also wait till the last item in the queue has finished playing
+        await self.audconn.drain_send_queue()
+
+    async def stop_speaking(self):
+        """
+        Immediately stop audio playback
+        Use to interrupt audio when the user starts speaking, etc
+        When using AI agents with run_agent() or run_realtime_agent(), this is used internally to interrupt the current output when an agent's output gaurdrails are triggered
+        """
+        # Clear the text queue
+        while not self.text_out_queue.empty():
+            try:
+                self.text_out_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        # Immediately stop audio playback
+        await self.audconn.clear_send_queue()
+
     @asynccontextmanager
     async def run_realtime_agent(self, agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = {}):
         """

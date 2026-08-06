@@ -1,9 +1,9 @@
 from typing import Any
-from agents import Agent, SQLiteSession, Runner, TContext, RunConfig, RunResultStreaming
+from agents import Agent, SQLiteSession, Runner, TContext, RunConfig, RunResultStreaming, OutputGuardrailTripwireTriggered
 
 from contextlib import asynccontextmanager
 from asteramisk.config import config
-from asteramisk.exceptions import GoBackException
+from asteramisk.exceptions import GoBackException, GuardrailTriggeredRecoveryException
 from asteramisk.internal.async_class import AsyncClass
 
 import logging
@@ -261,6 +261,22 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
+    async def done_speaking(self):
+        """
+        Wait till the last output (text or audio, depending on the UI type) has finished playing or being sent
+        :return: None
+        """
+        # Do nothing in the base class
+        pass
+
+    async def stop_speaking(self):
+        """
+        Immediately interrupt the current output (text or audio, depending on the UI type)
+        :return: None
+        """
+        # Do nothing by default, only implemented in the voice UI
+        pass
+
     @asynccontextmanager
     async def run_agent(self, agent, talk_first: bool = True, model: str = None, context: TContext = {}):
         """
@@ -290,6 +306,52 @@ class UI(AsyncClass):
         if not isinstance(agent, Agent):
             raise ValueError("agent must be an agents.Agent. To use a realtime agent, use the run_realtime_agent method instead.")
 
+        async def _call_agent_streaming(input, agent: Agent, sqlite_session: SQLiteSession, context: TContext, depth=0):
+            # Run the agent on the given input
+            try:
+                result: RunResultStreaming = Runner.run_streamed(
+                    starting_agent=agent,
+                    input=input,
+                    run_config=RunConfig(model=model),
+                    session=sqlite_session,
+                    context=context
+                )
+                sentence = ""
+                async for event in result.stream_events():
+                    # For voice UIs, we want to stream the agent's response as it comes
+                    # For text UIs, we want to wait for the full response before sending it
+                    if self.ui_type == self.UIType.VOICE:
+                        if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
+                            sentence += event.data.delta
+                            logger.info(event.data.delta)
+                            if sentence.strip().endswith("."):
+                                await self.say(sentence)
+                                sentence = ""
+                        if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
+                            # Make sure to send the last sentence just in case it doesn't end with a period
+                            if sentence.strip():
+                                await self.say(sentence)
+                    elif self.ui_type == self.UIType.TEXT:
+                        if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
+                            await self.say(event.data.text)
+                    yield event
+
+            except OutputGuardrailTripwireTriggered as e:
+                logger.warning(f"Agent output guardrail triggered: {e.guardrail_result.output.output_info}")
+
+                # Recursively call the agent again
+                # Limit the depth to prevent infinite recursion
+                # If the agent is still unable to produce an acceptable response, raise an error
+                if depth > 5:
+                    raise GuardrailTriggeredRecoveryException("Too many agents.OutputGuardrailTripwireTriggered exceptions. The agent appears unable to produce an acceptable response.") from e
+
+                # Give the agent a chance to correct itself
+                await self.stop_speaking()
+                error_explanation = f"Agent output guardrail triggered. You sent a response that contains forbidden information. Please identify what you did wrong and correct it in your next response. The following explains the problem: {e.guardrail_result.output.output_info}"
+                async for event in _call_agent_streaming(e.guardrail_result.output.output_info, agent, sqlite_session, context, depth + 1):
+                    yield event
+
+
         async def _gen():
             nonlocal model
             if model is None:
@@ -299,45 +361,12 @@ class UI(AsyncClass):
 
             try:
                 if talk_first:
-                    # The agent is expected to speak first. E.g. answering a phone call
-                    result = await Runner.run(
-                        starting_agent=agent,
-                        input="New conversation, greet the user.",
-                        run_config=RunConfig(model=model),
-                        session=sqlite_session,
-                        context=context
-                    )
-                    await self.say(result.final_output)
-
-                async for transcript in self.input_stream():
-                    result: RunResultStreaming = Runner.run_streamed(
-                        starting_agent=agent,
-                        input=transcript,
-                        run_config=RunConfig(model=model),
-                        session=sqlite_session,
-                        context=context
-                    )
-                    sentence = ""
-                    async for event in result.stream_events():
-                        logger.info(event)
-                        # For voice UIs, we want to stream the agent's response as it comes
-                        # For text UIs, we want to wait for the full response before sending it
-                        if self.ui_type == self.UIType.VOICE:
-                            if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
-                                sentence += event.data.delta
-                                logger.info(event.data.delta)
-                                if sentence.strip().endswith("."):
-                                    await self.say(sentence)
-                                    sentence = ""
-                            if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
-                                # Make sure to send the last sentence just in case it doesn't end with a period
-                                if sentence.strip():
-                                    await self.say(sentence)
-                        elif self.ui_type == self.UIType.TEXT:
-                            if event.type == "raw_response_event" and event.data.type == "response.output_text.done":
-                                await self.say(event.data.text)
+                    async for event in _call_agent_streaming("New conversation, greet the user.", agent, sqlite_session, context):
                         yield event
 
+                async for transcript in self.input_stream():
+                    async for event in _call_agent_streaming(transcript, agent, sqlite_session, context):
+                        yield event
             finally:
                 sqlite_session.close()
 
