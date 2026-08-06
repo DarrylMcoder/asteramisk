@@ -11,7 +11,9 @@ class MessageBroker(AsyncSingleton):
     async def __create__(self, our_number):
         self._our_number = our_number
         self._message_lock = asyncio.Lock()
-        self._incoming_messages = {}
+        self._session_lock = asyncio.Lock()
+        self._active_conversations = {}
+        self._pending_messages = {}
         self._rate_limiters = {}
         self._manager = Manager(
                 host=config.ASTERISK_HOST,
@@ -26,11 +28,37 @@ class MessageBroker(AsyncSingleton):
         await self._manager.connect()
 
     async def has_conversation(self, phone_number):
-        return phone_number in self._incoming_messages
+        """Return whether a live TextUI session exists for this number."""
+        async with self._session_lock:
+            return phone_number in self._active_conversations
 
-    async def _ensure_conversation_exists(self, phone_number):
-        if phone_number not in self._incoming_messages:
-            self._incoming_messages[phone_number] = asyncio.Queue()
+    async def register_conversation(self, phone_number):
+        """Register and return a private incoming-message queue for a TextUI."""
+        async with self._session_lock:
+            if phone_number in self._active_conversations:
+                raise ValueError(f"An active text conversation already exists for {phone_number}")
+            queue = asyncio.Queue()
+            pending = self._pending_messages.pop(phone_number, None)
+            if pending is not None:
+                while not pending.empty():
+                    await queue.put(pending.get_nowait())
+            self._active_conversations[phone_number] = queue
+            return queue
+
+    async def unregister_conversation(self, phone_number, queue):
+        """Unregister a TextUI while preserving messages queued during teardown."""
+        async with self._session_lock:
+            if self._active_conversations.get(phone_number) is not queue:
+                return
+            del self._active_conversations[phone_number]
+            if queue.empty():
+                return
+            pending = self._pending_messages.setdefault(phone_number, asyncio.Queue())
+            while not queue.empty():
+                await pending.put(queue.get_nowait())
+
+    async def _ensure_rate_limiter(self, phone_number):
+        if phone_number not in self._rate_limiters:
             self._rate_limiters[phone_number] = aiolimiter.AsyncLimiter(10) # 10 messages per minute
 
     async def message_received(self, sender_number, message):
@@ -38,8 +66,12 @@ class MessageBroker(AsyncSingleton):
         Called when a message is received. The message is added to the conversation for the phone number
         This method should not be called by the user, it is called by the message receiver code in Server
         """
-        await self._ensure_conversation_exists(sender_number)
-        await self._incoming_messages[sender_number].put(message)
+        async with self._session_lock:
+            queue = self._active_conversations.get(sender_number)
+            if queue is None:
+                return False
+            await queue.put(message)
+            return True
 
     async def send_message(self, recipient_number, message):
         """
@@ -49,7 +81,7 @@ class MessageBroker(AsyncSingleton):
         :param message: The message to send
         :return: None
         """
-        await self._ensure_conversation_exists(recipient_number)
+        await self._ensure_rate_limiter(recipient_number)
 
         message_action = Action({
             'Action': 'MessageSend',
@@ -65,21 +97,15 @@ class MessageBroker(AsyncSingleton):
             await self._manager.send_action(message_action)
 
     async def get_incoming_message(self, phone_number):
-        """
-        Waits for a message to be received from the phone number
-        :param phone_number: The phone number to wait for a message from
-        :return: The message received
-        """
-        await self._ensure_conversation_exists(phone_number)
-        return await self._incoming_messages[phone_number].get()
+        """Wait for a message on the currently active conversation."""
+        async with self._session_lock:
+            queue = self._active_conversations.get(phone_number)
+        if queue is None:
+            raise ValueError(f"No active text conversation exists for {phone_number}")
+        return await queue.get()
 
     async def send_receive(self, phone_number, message):
-        """
-        Sends a message to the phone number and waits for a response
-        :param phone_number: The phone number to send the message to
-        :param message: The message to send
-        :return: The message received in response
-        """
+        """Send a message and wait for a response on the active conversation."""
         await self.send_message(phone_number, message)
         return await self.get_incoming_message(phone_number)
 

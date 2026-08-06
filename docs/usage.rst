@@ -6,7 +6,7 @@ To create a server, import the ``Server`` class from ``asteramisk.server`` and c
 You can then register extensions with the server using the ``register_extension`` method.
 If your application should be accessible on more than one phone number, simply repeat the ``register_extension`` call for each number.
 Your call and text message handlers should be async functions that accept a ``UI`` object as a parameter.
-Each call to a handler will be handled by a separate asyncio task so that multiple calls can be handled concurrently.
+Each call or text message is handled by a separate asyncio task so that multiple conversations can be handled concurrently.
 
 .. code-block:: python
 
@@ -34,23 +34,54 @@ Each call to a handler will be handled by a separate asyncio task so that multip
             await ui.hangup()
 
         async def main():
-            server = await Server.create(host='127.0.0.1', port=4753)
-            await server.register_extension('1234567890', call_handler=my_call_handler, text_handler=my_text_handler)
+            server = await Server.create()
+            await server.register_extension('1234567890', call_handler=my_call_handler, message_handler=my_text_handler)
             await server.serve_forever()
 
         if __name__ == '__main__':
             asyncio.run(main())
 
 Inside your call and text message handlers, you can use the ``UI`` object to control the call or text conversation.
-Use the ``answer`` method to answer the call.
-Use the ``say`` method to say something to the caller.
+Use the ``answer`` method to perform any setup needed before communication.
+Use the ``say`` method to speak or send a message to the other party.
 Use the ``gather`` method to gather digits from the caller.
 Use the ``prompt`` method to prompt the caller for text input.
 Use the ``menu`` method to present a menu to the caller and call a specified callback for the user's choice.
 Use the ``select`` method to present a menu to the caller and get the user's choice.
-Use the ``hangup`` method to hang up the call.
+Use the ``hangup`` method to end the call or text session.
 
-The ``UI`` object also has a ``connect_openai_agent`` method that allows you to connect your call or text conversation to an OpenAI agent.
-After calling this method, the conversation is controlled by the OpenAI agent.
-You can then use tool calling and other features of the OpenAI agent to control the conversation.
+Text sessions have an explicit lifecycle. Once ``TextUI.hangup()`` is called,
+that UI is closed and cannot send or receive further messages. A later incoming
+message starts a new handler with a new ``TextUI``. For outgoing conversations,
+call ``Communicator.make_text()`` again to create a new session.
+
+OpenAI agents
+*************
+
+The shared ``UI.run_agent()`` method connects either a ``VoiceUI`` or ``TextUI``
+to a non-realtime OpenAI ``Agent``:
+
+.. code-block:: python
+
+        from agents import Agent
+
+        agent = Agent(name="Assistant", instructions="Be helpful and concise.")
+        async with ui.run_agent(agent) as session:
+            async for event in session:
+                pass
+
+Both UIs also provide ``run_realtime_agent()`` for an
+``agents.realtime.RealtimeAgent``. VoiceUI sends audio; TextUI sends messages
+using text-only modalities:
+
+.. code-block:: python
+
+        from agents.realtime import RealtimeAgent
+
+        agent = RealtimeAgent(name="Assistant", instructions="Be helpful.")
+        async with ui.run_realtime_agent(agent) as session:
+            async for event in session:
+                pass
+
+Do not use ``await`` before either context-manager method.
 Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).

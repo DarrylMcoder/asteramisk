@@ -16,28 +16,28 @@
     <script src="../../_static/copybutton.js?v=f281be69"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-   
-  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
-  
 
-  
-  
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
 
   </head><body>
-  
+
 
     <div class="document">
       <div class="documentwrapper">
         <div class="bodywrapper">
-          
+
 
           <div class="body" role="main">
-            
+
   <h1>Source code for asteramisk.communicator</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Union</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">panoramisk</span><span class="w"> </span><span class="kn">import</span> <span class="n">Manager</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">panoramisk.actions</span><span class="w"> </span><span class="kn">import</span> <span class="n">Action</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">asteramisk.ui</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asteramisk.exceptions</span>
@@ -74,7 +74,7 @@
 <span class="sd">            await communicator.make_call(recipient_number=&quot;1234567890&quot;)</span>
 <span class="sd">            await communicator.send_message(recipient_number=&quot;1234567890&quot;, message=&quot;Hello world!&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Initializes the Communicator.</span>
 <span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
@@ -119,117 +119,130 @@
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
                         <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                         <span class="n">channel</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                        <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                        <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">:</span>
+                        <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="c1"># Callerids are None for a reason, so we can use the Communicator instance defaults. See further down</span>
+                        <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot; </span>
 <span class="sd">        Makes a call to the recipient and returns a VoiceUI object.</span>
 <span class="sd">        :param recipient_number: The number to call. Uses PJSIP with voip.ms</span>
 <span class="sd">        :param channel: The channel to dial for the call. Mutually exclusive with recipient_number</span>
 <span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
 <span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
+<span class="sd">        :param timeout: The timeout in seconds for the call</span>
 <span class="sd">        :return: An asteramisk.ui.VoiceUI object.</span>
 <span class="sd">        :raises ValueError: If neither recipient_number or channel is provided or both are provided</span>
 <span class="sd">        :raises asteramisk.exceptions.CallFailedException: If the call fails</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        
+
         <span class="k">if</span> <span class="ow">not</span> <span class="n">recipient_number</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">channel</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Must provide either recipient_number or channel&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">recipient_number</span> <span class="ow">and</span> <span class="n">channel</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot provide both recipient_number and channel&quot;</span><span class="p">)</span>
 
-        <span class="n">callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span>
-        <span class="n">callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span>
+        <span class="n">callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span>
+        <span class="n">callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span>
 
         <span class="k">if</span> <span class="n">recipient_number</span><span class="p">:</span>
+            <span class="c1"># Do this only after null check as it will convert None to literally &#39;None&#39;</span>
+            <span class="n">recipient_number</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">)</span>
             <span class="n">channel</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;PJSIP/</span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2">@</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_PSTN_ENDPOINT</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_name</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConfigurationException</span><span class="p">(</span><span class="s2">&quot;Caller ID name is not set. This will not work unless this is a call to a local extension on our system.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_number</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConfigurationException</span><span class="p">(</span><span class="s2">&quot;Caller ID number is not set. This will not work unless this is a call to a local extension on our system.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Convert to string in case its int</span>
+        <span class="n">callerid_number</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">callerid_number</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="n">callerid_number</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">callerid_number</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">10</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Caller ID number </span><span class="si">{</span><span class="n">callerid_number</span><span class="si">}</span><span class="s2"> is not 10 digits. It will not work. Will be replaced with default number.&quot;</span><span class="p">)</span>
             <span class="n">callerid_number</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span>
 
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_name</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Caller ID name is not set. No caller ID name will be used.&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">callerid_number</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Caller ID number is not set. This will not work unless this is a call to a local extension on our system.&quot;</span><span class="p">)</span>
-
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Making call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2"> on channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-        <span class="n">originate_action</span> <span class="o">=</span> <span class="n">Action</span><span class="p">({</span>
-            <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;Originate&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Channel&quot;</span><span class="p">:</span> <span class="n">channel</span><span class="p">,</span>
-            <span class="s2">&quot;Application&quot;</span><span class="p">:</span> <span class="s2">&quot;Stasis&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Data&quot;</span><span class="p">:</span> <span class="s2">&quot;asteramisk&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;CallerID&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">callerid_name</span><span class="si">}</span><span class="s2"> &lt;</span><span class="si">{</span><span class="n">callerid_number</span><span class="si">}</span><span class="s2">&gt;&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Async&quot;</span><span class="p">:</span> <span class="kc">True</span>  <span class="c1"># This seems to be required.</span>
-        <span class="p">})</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_client</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">originate</span><span class="p">(</span>
+            <span class="n">endpoint</span><span class="o">=</span><span class="n">channel</span><span class="p">,</span>
+            <span class="n">app</span><span class="o">=</span><span class="s2">&quot;asteramisk&quot;</span><span class="p">,</span>
+            <span class="n">callerId</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">callerid_name</span><span class="si">}</span><span class="s2"> &lt;</span><span class="si">{</span><span class="n">callerid_number</span><span class="si">}</span><span class="s2">&gt;&quot;</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">OUTBOUND_CALL_TIMEOUT</span>
+        <span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> with ID </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">originate_action</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Originate AMI response&quot;</span><span class="p">,</span> <span class="n">response</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">response</span><span class="p">:</span>
-            <span class="c1"># Check if the call failed</span>
-            <span class="k">if</span> <span class="s2">&quot;Event&quot;</span> <span class="ow">in</span> <span class="n">event</span> <span class="ow">and</span> <span class="s2">&quot;Response&quot;</span> <span class="ow">in</span> <span class="n">event</span> <span class="ow">and</span> \
-                    <span class="n">event</span><span class="p">[</span><span class="s2">&quot;Event&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;OriginateResponse&quot;</span> <span class="ow">and</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;Response&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Failure&quot;</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to make call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-        <span class="c1"># Get the channel</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">uniqueid</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to get channel for call to </span><span class="si">{</span><span class="n">recipient_number</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">channel_id</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">uniqueid</span>
-
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Got channel </span><span class="si">{</span><span class="n">channel_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-        <span class="c1"># TODO: Make this whole method use ARI rather than AMI</span>
-        <span class="c1"># I tried to use ARI, but couldn&#39;t figure out whether the call was successful or not</span>
-        <span class="c1"># It would be possible to use ARI, but this is easier for now</span>
+        <span class="c1"># All the following in one try/except block to catch originating UI hangups (asyncio.CancelledError)</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_client</span><span class="o">.</span><span class="n">applications</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">applicationName</span><span class="o">=</span><span class="s2">&quot;asteramisk&quot;</span><span class="p">)</span>
-        <span class="k">except</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AsteramiskException</span><span class="p">(</span><span class="s2">&quot;The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.&quot;</span><span class="p">)</span>
-        <span class="n">ari_channel</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_client</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channelId</span><span class="o">=</span><span class="n">channel_id</span><span class="p">)</span>
 
-        <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">ari_channel</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">ui</span></div>
+            <span class="c1"># Poll for the channel to be ready</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">OUTBOUND_CALL_TIMEOUT</span> <span class="ow">or</span> <span class="mi">30</span>
+            <span class="k">while</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span> <span class="o">&lt;</span> <span class="n">timeout</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">channel</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_client</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channelId</span><span class="o">=</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">])</span>
+                    <span class="n">state</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;state&#39;</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;Up&quot;</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> is now Up, Detected via polling&quot;</span><span class="p">)</span>
+                        <span class="k">break</span>
+                <span class="k">except</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="s2">&quot;Call failed. Channel destroyed before being ready.&quot;</span><span class="p">)</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Timed out</span>
+                <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CallFailedException</span><span class="p">(</span><span class="s2">&quot;Call failed. Reached timeout waiting for channel to be answered.&quot;</span><span class="p">)</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dialled out to </span><span class="si">{</span><span class="n">recipient_number</span><span class="si">}</span><span class="s2"> on channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> successfully&quot;</span><span class="p">)</span>
+
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_client</span><span class="o">.</span><span class="n">applications</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">applicationName</span><span class="o">=</span><span class="s2">&quot;asteramisk&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AsteramiskException</span><span class="p">(</span><span class="s2">&quot;The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.&quot;</span><span class="p">)</span>
+
+            <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+            <span class="c1"># I know this seems strange, but audio simply won&#39;t play via audio socket until we play a sound file like this</span>
+            <span class="c1"># This is only a problem on outbound calls</span>
+            <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">play</span><span class="p">(</span><span class="n">media</span><span class="o">=</span><span class="s2">&quot;sound:ascending-2tone&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ui</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Call to {recipient_number or channel} was cancelled because the originating UI channel was destroyed&quot;</span><span class="p">)</span>
+            <span class="c1"># Hangup the outgoing channel</span>
+            <span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+            <span class="k">raise</span></div>
 
 
 <div class="viewcode-block" id="Communicator.make_text">
 <a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.make_text">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_text</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-                        <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                        <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span>
-                        <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">:</span>
+                        <span class="n">recipient_number</span><span class="p">,</span> <span class="c1"># No reason to make this optional</span>
+                        <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Starts a new messaging conversation with the recipient.</span>
 <span class="sd">        :param recipient_number: The number to message.</span>
-<span class="sd">        :type recipient_number: str</span>
 <span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
-<span class="sd">        :type callerid_number: str</span>
 <span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
-<span class="sd">        :type callerid_name: str</span>
 <span class="sd">        :return: An asteramisk.ui.TextUI object.</span>
-<span class="sd">        :rtype: asteramisk.ui.TextUI</span>
+<span class="sd">        :raises ValueError: If the recipient_number is not provided</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span></div>
+        <span class="n">callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_number</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span>
+        <span class="n">callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callerid_name</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span>
+
+        <span class="k">return</span> <span class="k">await</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Communicator.make_conversation">
 <a class="viewcode-back" href="../../api.html#asteramisk.communicator.Communicator.make_conversation">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">make_conversation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
                                 <span class="n">recipient_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                                <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span>
-                                <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">,</span>
+                                <span class="n">callerid_number</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                                <span class="n">callerid_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                                 <span class="n">contact_method</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">VoiceUI</span><span class="p">,</span> <span class="n">asteramisk</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">TextUI</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Starts a new messaging conversation with the recipient.</span>
 <span class="sd">        :param recipient_number: The number to contact.</span>
-<span class="sd">        :type recipient_number: str</span>
 <span class="sd">        :param callerid_number: The number to use for the caller ID.</span>
-<span class="sd">        :type callerid_number: str</span>
 <span class="sd">        :param callerid_name: The name to use for the caller ID.</span>
-<span class="sd">        :type callerid_name: str</span>
 <span class="sd">        :param contact_method: The contact method to use. Either &quot;call&quot; or &quot;text&quot;</span>
-<span class="sd">        :type contact_method: str</span>
 <span class="sd">        :return: An asteramisk.ui.VoiceUI or asteramisk.ui.TextUI object.</span>
-<span class="sd">        :rtype: Union[asteramisk.ui.VoiceUI, asteramisk.ui.TextUI]</span>
+<span class="sd">        :raises ValueError: If the contact method is not &quot;call&quot; or &quot;text&quot;</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">contact_method</span> <span class="o">==</span> <span class="s2">&quot;call&quot;</span><span class="p">:</span>
             <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">make_call</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">callerid_number</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">callerid_name</span><span class="p">)</span>
@@ -242,7 +255,7 @@
 </pre></div>
 
           </div>
-          
+
         </div>
       </div>
       <div class="sphinxsidebar" role="navigation" aria-label="Main">
@@ -298,15 +311,15 @@
     </div>
     <div class="footer">
       &#169;2025, Darryl Martin.
-      
+
       |
       Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
-      
+
     </div>
 
-    
 
-    
+
+
   </body>
 </html>

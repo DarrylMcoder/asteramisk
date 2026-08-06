@@ -35,12 +35,13 @@
             
   <h1>Source code for asteramisk.ui.text_ui</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">Agent</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">suppress</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span><span class="p">,</span> <span class="n">suppress</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">TContext</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">agents.realtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">RealtimeAgent</span><span class="p">,</span> <span class="n">RealtimeRunner</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">UI</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">HangupException</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.message_broker</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageBroker</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
@@ -49,13 +50,16 @@
 <div class="viewcode-block" id="TextUI">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">TextUI</span><span class="p">(</span><span class="n">UI</span><span class="p">):</span>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recipient_number</span><span class="p">,</span> <span class="n">our_callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span> <span class="n">our_callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="p">:</span> <span class="n">MessageBroker</span> <span class="o">=</span> <span class="k">await</span> <span class="n">MessageBroker</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">our_callerid_number</span><span class="p">)</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recipient_number</span><span class="p">,</span> <span class="n">callerid_number</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span><span class="p">,</span> <span class="n">callerid_name</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="p">:</span> <span class="n">MessageBroker</span> <span class="o">=</span> <span class="k">await</span> <span class="n">MessageBroker</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">callerid_number</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span> <span class="o">=</span> <span class="n">recipient_number</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_our_callerid_number</span> <span class="o">=</span> <span class="n">our_callerid_number</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_our_callerid_name</span> <span class="o">=</span> <span class="n">our_callerid_name</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__create__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_our_callerid_number</span> <span class="o">=</span> <span class="n">callerid_number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_our_callerid_name</span> <span class="o">=</span> <span class="n">callerid_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_incoming_queue</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">register_conversation</span><span class="p">(</span><span class="n">recipient_number</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed_event</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">await</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__create__</span><span class="p">()</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">ui_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -64,22 +68,65 @@
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_unique_id</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remote_number</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remote_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">local_number</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_our_callerid_number</span>
     
 <div class="viewcode-block" id="TextUI.answer">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.answer">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">answer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot; \&quot;Answer\&quot; the call. Mostly for compatibility with other UIs. Connects to the broker. &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;TextUI is closed; create a new TextUI to start another conversation&quot;</span><span class="p">)</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <div class="viewcode-block" id="TextUI.hangup">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.hangup">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">hangup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot; \&quot;Hangup\&quot; the call. Mostly for compatibility with other UIs. Closes the broker. &quot;&quot;&quot;</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span></div>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">hangup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">wait</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Close this text session; ``wait`` is accepted for UI compatibility.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">unregister_conversation</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_incoming_queue</span><span class="p">)</span></div>
 
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_active</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;TextUI is closed; create a new TextUI to start another conversation&quot;</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_receive_message</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_active</span><span class="p">()</span>
+        <span class="n">message_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_incoming_queue</span><span class="o">.</span><span class="n">get</span><span class="p">())</span>
+        <span class="n">closed_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_closed_event</span><span class="o">.</span><span class="n">wait</span><span class="p">())</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">done</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">message_task</span><span class="p">,</span> <span class="n">closed_task</span><span class="p">),</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">asyncio</span><span class="o">.</span><span class="n">FIRST_COMPLETED</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="c1"># If both complete together, consume a message that was already</span>
+            <span class="c1"># accepted before shutdown rather than dropping it.</span>
+            <span class="k">if</span> <span class="n">message_task</span> <span class="ow">in</span> <span class="n">done</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">message_task</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;TextUI was hung up while waiting for a message&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="p">(</span><span class="n">message_task</span><span class="p">,</span> <span class="n">closed_task</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                    <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                    <span class="k">await</span> <span class="n">task</span>
     
 <div class="viewcode-block" id="TextUI.say">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.say">[docs]</a>
@@ -88,6 +135,7 @@
 <span class="sd">        Say text to the user. Will be sent as a text message</span>
 <span class="sd">        :param text: Text to say</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_active</span><span class="p">()</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span></div>
 
 
@@ -99,7 +147,9 @@
 <span class="sd">        :param text: Text to prompt the user</span>
 <span class="sd">        :return: The user&#39;s input</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">send_receive</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_active</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_receive_message</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="TextUI.gather">
@@ -128,104 +178,96 @@
 <span class="sd">        :return: True if the user answers yes or False if the user answers no</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2"> (yes/no)&quot;</span>
-        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-        <span class="k">return</span> <span class="s1">&#39;yes&#39;</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span></div>
+        <span class="n">response</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">(</span><span class="n">message</span><span class="p">))</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">response</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">}:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="n">response</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;no&quot;</span><span class="p">,</span> <span class="s2">&quot;n&quot;</span><span class="p">}:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="s2">&quot;Please answer yes or no.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ask_yes_no</span><span class="p">(</span><span class="n">text</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="TextUI.input_stream">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.input_stream">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">input_stream</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
-            <span class="n">message</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">get_incoming_message</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span><span class="p">)</span>
-            <span class="k">yield</span> <span class="n">message</span></div>
-
-
-<div class="viewcode-block" id="TextUI.connect_openai_agent">
-<a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.connect_openai_agent">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">:</span> <span class="n">Agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Connect this UI to an OpenAI agent</span>
-<span class="sd">        This automates the passing of messages or audio between the UI and the OpenAI agent</span>
-<span class="sd">        After connecting, control of the conversation is passed to the OpenAI agent.</span>
-<span class="sd">        You will likely then want to use OpenAI&#39;s tool calling to manage your conversation flow</span>
-<span class="sd">        Example usage:</span>
-<span class="sd">        .. code-block:: python</span>
-<span class="sd">            from agents import Agent</span>
-<span class="sd">            from asteramisk.ui import TextUI</span>
-<span class="sd">            from asteramisk.server import Server</span>
-
-<span class="sd">            async def message_handler(ui: TextUI):</span>
-<span class="sd">                await ui.answer()</span>
-<span class="sd">                await ui.say(&quot;Passing control to OpenAI agent&quot;)</span>
-<span class="sd">                bob = Agent(</span>
-<span class="sd">                    name=&quot;Bob&quot;,</span>
-<span class="sd">                    instructions=&quot;Your agent instructions&quot;</span>
-<span class="sd">                )</span>
-<span class="sd">                await ui.connect_openai_agent(bob, model=&quot;gpt-4o&quot;)</span>
-<span class="sd">                # Control of the conversation is now passed to the OpenAI agent</span>
-<span class="sd">                # You can use OpenAI&#39;s tool calling to manage your conversation flow</span>
-<span class="sd">                # You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio</span>
-
-<span class="sd">        :param agent: The OpenAI agent to connect to the UI, either an agents.Agent or an agents.realtime.RealtimeAgent</span>
-<span class="sd">        :param talk_first: If True, the agent will speak first</span>
-<span class="sd">        :return: A task that will run the OpenAI agent. You can await this task to wait for the conversation to end</span>
+<span class="sd">        Returns an async generator that yields incoming messages from the user</span>
+<span class="sd">        :return: An async generator that yields incoming messages from the user</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_run_agent_task</span><span class="p">():</span>
-            <span class="k">nonlocal</span> <span class="n">model</span> <span class="c1"># We might change the model so we need to declare it nonlocal</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">Agent</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_text_agent</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span>
-            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">RealtimeAgent</span><span class="p">):</span>
-                <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                    <span class="c1"># Use the cheaper mini model rather than the default GPT-4o</span>
-                    <span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">DEFAULT_REALTIME_GPT_MODEL</span>
-                <span class="n">runner</span> <span class="o">=</span> <span class="n">RealtimeRunner</span><span class="p">(</span><span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="p">{</span>
-                    <span class="s2">&quot;model_settings&quot;</span><span class="p">:</span> <span class="p">{</span>
-                        <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
-                        <span class="s2">&quot;modalities&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span>
-                    <span class="p">}</span>
-                <span class="p">})</span>
-                <span class="k">async</span> <span class="k">with</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
-                    <span class="k">if</span> <span class="n">talk_first</span><span class="p">:</span>
-                        <span class="c1"># The agent is expected to speak first.</span>
-                        <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="s2">&quot;New call, greet the caller.&quot;</span><span class="p">)</span>
-                    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">message_loop</span><span class="p">():</span>
-                        <span class="c1"># Directly pass messages from the UI to the OpenAI session</span>
-                        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
-                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;message_loop: Waiting for message&quot;</span><span class="p">)</span>
-                            <span class="n">message</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_broker</span><span class="o">.</span><span class="n">get_incoming_message</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_recipient_number</span><span class="p">)</span>
-                            <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-                    <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">message_loop</span><span class="p">())</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
+                <span class="n">message</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_receive_message</span><span class="p">()</span>
+                <span class="k">yield</span> <span class="n">message</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">GeneratorExit</span><span class="p">,</span> <span class="n">HangupException</span><span class="p">):</span>
+            <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="TextUI.run_realtime_agent">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.run_realtime_agent">[docs]</a>
+    <span class="nd">@asynccontextmanager</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_realtime_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">:</span> <span class="n">RealtimeAgent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">TContext</span> <span class="o">=</span> <span class="p">{}):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Connect this text UI to an OpenAI realtime agent.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">RealtimeAgent</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;agent must be an agents.realtime.RealtimeAgent&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">DEFAULT_REALTIME_GPT_MODEL</span>
+
+        <span class="n">runner</span> <span class="o">=</span> <span class="n">RealtimeRunner</span><span class="p">(</span><span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;model_settings&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
+                <span class="s2">&quot;modalities&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span>
+            <span class="p">}</span>
+        <span class="p">})</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">message_loop</span><span class="p">(</span><span class="n">session</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;TextUI.run_realtime_agent: waiting for message&quot;</span><span class="p">)</span>
+                    <span class="n">message</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_receive_message</span><span class="p">()</span>
+                    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">HangupException</span><span class="p">:</span>
+                <span class="k">return</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_gen</span><span class="p">():</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">context</span><span class="o">=</span><span class="n">context</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">talk_first</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="s2">&quot;New conversation, greet the user.&quot;</span><span class="p">)</span>
+                <span class="n">message_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">message_loop</span><span class="p">(</span><span class="n">session</span><span class="p">))</span>
+                <span class="k">try</span><span class="p">:</span>
                     <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">session</span><span class="p">:</span>
-                        <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
-                        <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio&quot;</span><span class="p">:</span>
-                            <span class="k">pass</span>
-                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio_interrupted&quot;</span><span class="p">:</span>
-                            <span class="c1"># Audio was interrupted, stop speaking and listen</span>
-                            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
-                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;raw_model_event&quot;</span><span class="p">:</span>
-                            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
-                            <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;raw_server_event&quot;</span><span class="p">:</span>
-                                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;     &quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">])</span>
-                                <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s2">&quot;rate&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-                                    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;         &quot;</span><span class="p">,</span> <span class="n">event</span><span class="p">)</span>
-                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span>
                             <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OpenAI session error: </span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">yield</span> <span class="n">event</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="n">message_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                        <span class="k">await</span> <span class="n">message_task</span>
 
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported agent type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">agent</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">_run_agent_task</span><span class="p">())</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span></div>
+        <span class="k">yield</span> <span class="n">_gen</span><span class="p">()</span></div>
 
 
-<div class="viewcode-block" id="TextUI.disconnect_openai_agent">
-<a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.disconnect_openai_agent">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">disconnect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="o">=</span> <span class="kc">None</span></div>
+<div class="viewcode-block" id="TextUI.bridge">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.text_ui.TextUI.bridge">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">bridge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ui</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Bridges two text UIs together</span>
+<span class="sd">        Media will flow between the two UIs</span>
+<span class="sd">        :param ui: The UI to bridge to</span>
+<span class="sd">        :return: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">ui</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">TEXT</span><span class="p">:</span>
+            <span class="c1"># Simply constantly copy messages between the two UIs</span>
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_to_ui</span><span class="p">():</span>
+                <span class="k">async</span> <span class="k">for</span> <span class="n">message</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_stream</span><span class="p">():</span>
+                    <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_from_ui</span><span class="p">():</span>
+                <span class="k">async</span> <span class="k">for</span> <span class="n">message</span> <span class="ow">in</span> <span class="n">ui</span><span class="o">.</span><span class="n">input_stream</span><span class="p">():</span>
+                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="n">_to_ui</span><span class="p">(),</span> <span class="n">_from_ui</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Can only bridge TextUIs to TextUIs&quot;</span><span class="p">)</span></div>
 </div>
 
 </pre></div>

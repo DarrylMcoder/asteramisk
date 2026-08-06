@@ -59,6 +59,7 @@ class VoiceUI(UI):
         self.transcribe_engine: TranscribeEngine = await TranscribeEngine.create()
         self.dtmf_queue = asyncio.Queue(10)
         self.dtmf_callbacks = {}
+        self._go_back_event = asyncio.Event()
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
         self.to_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
@@ -133,17 +134,13 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI.say: {text}")
         # Ensure the call is answered, since we can't hear anything otherwise
         await self._ensure_answered()
+        self._check_go_back()
 
         if not self.is_active:
             raise HangupException("UI is inactive, cannot say(). User probably hung up")
 
-        # Raise the proper exception if the user presses * or #
-        if hasattr(self, "_star_pressed") and self._star_pressed:
-            self._star_pressed = False
-            raise GoBackException("User pressed * to go back")
-
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
-        await self.text_out_queue.put(text)
+        await self._wait_for_back_or(self.text_out_queue.put(text))
 
     async def prompt(self, text, hint_phrases=[], hint_boost=10.0):
         """
@@ -154,9 +151,15 @@ class VoiceUI(UI):
         :return: The user's input
         """
         logger.debug(f"VoiceUI.prompt: {text}")
-        await self._done_speaking()
+        await self.done_speaking()
         await self.say(text)
-        transcription = await self.transcribe_engine.transcribe_from_stream(self.audconn, hint_phrases=hint_phrases, hint_boost=hint_boost)
+        transcription = await self._wait_for_back_or(
+            self.transcribe_engine.transcribe_from_stream(
+                self.audconn,
+                hint_phrases=hint_phrases,
+                hint_boost=hint_boost,
+            )
+        )
         logger.debug(f"VoiceUI.prompt transcription: {transcription}")
         # Immediately stop audio playback when we get the transcription
         await self.audconn.clear_send_queue()
@@ -171,7 +174,7 @@ class VoiceUI(UI):
         :param text: Text to prompt the user
         :return: The user's input
         """
-        await self._done_speaking()
+        await self.done_speaking()
         await self.say(text)
         return await self._get_dtmf(num_digits=num_digits)
 
@@ -205,10 +208,18 @@ class VoiceUI(UI):
         Returns an async generator that yields transcriptions as they come
         """
         try:
-            async for transcript in self.transcribe_engine.streaming_transcribe_from_stream(self.audconn):
-                # Immediately stop audio playback when we get a new transcription
-                await self.audconn.clear_send_queue()
-                yield transcript
+            stream = self.transcribe_engine.streaming_transcribe_from_stream(self.audconn)
+            try:
+                while True:
+                    try:
+                        transcript = await self._wait_for_back_or(stream.__anext__())
+                    except StopAsyncIteration:
+                        break
+                    # Immediately stop audio playback when we get a new transcription
+                    await self.audconn.clear_send_queue()
+                    yield transcript
+            finally:
+                await stream.aclose()
         except GeneratorExit:
             pass
 
@@ -217,7 +228,7 @@ class VoiceUI(UI):
         Returns audio data. Must be called repeatedly to get more audio
         :return: Audio data
         """
-        return await self.audconn.read()
+        return await self._wait_for_back_or(self.audconn.read())
 
     async def write_audio(self, audio):
         """
@@ -226,7 +237,7 @@ class VoiceUI(UI):
         Just dump the audio data into this method and it will be played
         :param audio: Audio data in 8000 Hz PCM
         """
-        await self.audconn.write(audio)
+        await self._wait_for_back_or(self.audconn.write(audio))
 
     async def done_speaking(self):
         """
@@ -235,9 +246,7 @@ class VoiceUI(UI):
         say(), etc by default, will enqueue the text to be played, and return immediately
         """
         # Wait till every line of text has been sent to the player
-        await self.text_out_queue.join()
-        # Also wait till the last item in the queue has finished playing
-        await self.audconn.drain_send_queue()
+        await self._wait_for_back_or(self._done_speaking())
 
     async def stop_speaking(self):
         """
@@ -249,6 +258,7 @@ class VoiceUI(UI):
         while not self.text_out_queue.empty():
             try:
                 self.text_out_queue.get_nowait()
+                self.text_out_queue.task_done()
             except asyncio.QueueEmpty:
                 break
         # Immediately stop audio playback
@@ -266,32 +276,24 @@ class VoiceUI(UI):
         :param context: The context to use for the agent. This is passed to any agent tool calls, etc. Read about it in the OpenAI agents docs
 
         Use this method almost like you would use the openai agents API
+
         .. code-block:: python
 
-        from asteramisk.ui import VoiceUI
-        from agents.realtime import RealtimeAgent
+            from asteramisk.ui import VoiceUI
+            from agents.realtime import RealtimeAgent
 
-        async def call_handler(ui: VoiceUI):
-            await ui.answer()
-            await ui.say("Passing control to OpenAI agent")
-            agent = RealtimeAgent(
-                name="Bob",
-                instructions="Your agent instructions"
-                tools=[]
-            )
-            # OpenAI docs say to use a RealtimeRunner now
-            # runner = RealtimeRunner(starting_agent=agent)
-            # async with await runner.run() as session:
-            #     async for event in session:
-            #         # Do something with the event
-            #         # Handle audio, etc.
-            
-            # If using this library, you can use the run_agent method almost like you would use runner.run()
-            async with await ui.run_agent(agent) as session:
-                async for event in session:
-                    # Do something with the event
-                    # Audio is already handled for you
-                    # Nothing really needs to be done here
+            async def call_handler(ui: VoiceUI):
+                await ui.answer()
+                await ui.say("Passing control to OpenAI agent")
+                agent = RealtimeAgent(
+                    name="Bob",
+                    instructions="Your agent instructions",
+                    tools=[]
+                )
+                async with ui.run_realtime_agent(agent) as session:
+                    async for event in session:
+                        # Audio is already handled for you.
+                        pass
 
         :return: An async generator that yields events from the agent
         """
@@ -420,11 +422,15 @@ class VoiceUI(UI):
     async def control_say(self, text):
         logger.debug("VoiceUI.control_say")
         # Speak text, allowing rewind and fast forward
-        filename = await self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
+        filename = await self._wait_for_back_or(
+            self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
+        )
         # Since this doesn't actually use the queue, make sure this doesn't interfere with previously queued audio
-        await self._done_speaking()
+        await self.done_speaking()
         try:
-            playback = await self.channel.play(media=f"sound:{filename}")
+            playback = await self._wait_for_back_or(
+                self.channel.play(media=f"sound:{filename}")
+            )
         except aiohttp.web_exceptions.HTTPNotFound as e:
             logger.error(f"Failed to play {filename}. Channel may have been destroyed")
             raise HangupException("Failed to play audio. Channel may have been destroyed") from e
@@ -451,18 +457,24 @@ class VoiceUI(UI):
         self.dtmf_callbacks["5"] = pause_toggle
         self.dtmf_callbacks["6"] = forward
         # The only way I know to wait for playback to finish is to poll until it no longer exists
-        while True:
-            # Sleep for 1 second, so we're not polling too often
-            await asyncio.sleep(1)
-            try:
-                await playback.get()
-            except aiohttp.web_exceptions.HTTPNotFound:
-                break
+        try:
+            while True:
+                # Sleep for 1 second, so we're not polling too often
+                await self._wait_for_back_or(asyncio.sleep(1))
+                try:
+                    await playback.get()
+                except aiohttp.web_exceptions.HTTPNotFound:
+                    break
+        except GoBackException:
+            with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                await playback.control(operation="stop")
+            raise
 
-        # When playback is done, remove the callbacks
-        del self.dtmf_callbacks["4"]
-        del self.dtmf_callbacks["5"]
-        del self.dtmf_callbacks["6"]
+        finally:
+            # When playback ends or is interrupted, remove the callbacks.
+            self.dtmf_callbacks.pop("4", None)
+            self.dtmf_callbacks.pop("5", None)
+            self.dtmf_callbacks.pop("6", None)
 
     ### Callbacks ###
 
@@ -474,10 +486,10 @@ class VoiceUI(UI):
     async def _on_channel_dtmf_received(self, objs, event):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
         digit = event['digit']
-        if digit == "*":
-            logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, setting goback flag")
-            # Set the goback flag
-            self._star_pressed = True
+        if digit == "*" and config.GO_BACK_ON_STAR:
+            logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, requesting go back")
+            self._go_back_event.set()
+            await self.stop_speaking()
         elif digit in self.dtmf_callbacks:
             # If there's a callback for this digit, run it
             await self.dtmf_callbacks[digit]()
@@ -487,6 +499,38 @@ class VoiceUI(UI):
             logger.debug(f"VoiceUI._on_channel_dtmf_received: {digit} added to queue")
 
     ### Private methods ###
+
+    def _check_go_back(self):
+        if self._go_back_event.is_set():
+            self._go_back_event.clear()
+            raise GoBackException("User pressed * to go back")
+
+    async def _wait_for_back_or(self, awaitable):
+        """Run a VoiceUI operation, interrupting it when * is pressed."""
+        self._check_go_back()
+        operation_task = asyncio.create_task(awaitable)
+        back_task = asyncio.create_task(self._go_back_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                (operation_task, back_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if back_task in done:
+                operation_task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await operation_task
+                self._go_back_event.clear()
+                raise GoBackException("User pressed * to go back")
+            return operation_task.result()
+        finally:
+            if not operation_task.done():
+                operation_task.cancel()
+            if not back_task.done():
+                back_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await operation_task
+            with suppress(asyncio.CancelledError):
+                await back_task
 
     async def _ensure_answered(self):
         logger.debug("VoiceUI._ensure_answered")
@@ -516,34 +560,44 @@ class VoiceUI(UI):
             await asyncio.sleep(timeout)
         timer_task = asyncio.create_task(_timer_task())
         digits = ""
-        if num_digits:
-            while len(digits) < num_digits:
-                try:
-                    digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
-                    # Stop sending audio if we get a digit response
-                    await self.audconn.clear_send_queue()
-                except asyncio.TimeoutError:
-                    # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
-                    if timer_task.done():
-                        logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
-                        await timer_task
-                        break
+        try:
+            if num_digits:
+                while len(digits) < num_digits:
+                    try:
+                        digits += await self._wait_for_back_or(
+                            asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
+                        )
+                        # Stop sending audio if we get a digit response
+                        await self.audconn.clear_send_queue()
+                    except asyncio.TimeoutError:
+                        # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
+                        if timer_task.done():
+                            logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
+                            await timer_task
+                            break
 
-        else:
-            while True:
-                try:
-                    digits += await asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
-                    # Stop sending audio if we get a digit response
-                    await self.audconn.clear_send_queue()
-                except asyncio.TimeoutError:
-                    # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
-                    if timer_task.done():
-                        logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
-                        await timer_task
-                        break
+            else:
+                while True:
+                    try:
+                        digits += await self._wait_for_back_or(
+                            asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
+                        )
+                        # Stop sending audio if we get a digit response
+                        await self.audconn.clear_send_queue()
+                    except asyncio.TimeoutError:
+                        # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
+                        if timer_task.done():
+                            logger.debug("VoiceUI._get_dtmf: Timed out waiting for digit")
+                            await timer_task
+                            break
 
-        logger.debug(f"VoiceUI._get_dtmf: Got digits: {digits}")
-        return digits
+            logger.debug(f"VoiceUI._get_dtmf: Got digits: {digits}")
+            return digits
+        finally:
+            if not timer_task.done():
+                timer_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await timer_task
 
     async def _out_media_exchanger(self):
         try:

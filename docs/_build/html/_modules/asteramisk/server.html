@@ -16,23 +16,23 @@
     <script src="../../_static/copybutton.js?v=f281be69"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-   
-  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
-  
 
-  
-  
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+
+
+
+
 
   </head><body>
-  
+
 
     <div class="document">
       <div class="documentwrapper">
         <div class="bodywrapper">
-          
+
 
           <div class="body" role="main">
-            
+
   <h1>Source code for asteramisk.server</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
@@ -42,6 +42,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.actions</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.manager</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">suppress</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">VoiceUI</span><span class="p">,</span> <span class="n">TextUI</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.message_broker</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageBroker</span>
@@ -51,6 +52,12 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="raise_not_configured">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.raise_not_configured">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">raise_not_configured</span><span class="p">(</span><span class="n">var</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">var</span><span class="si">}</span><span class="s2"> is not configured. Please configure it by setting config.</span><span class="si">{</span><span class="n">var</span><span class="si">}</span><span class="s2"> or by setting the environment variable </span><span class="si">{</span><span class="n">var</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
 
 <div class="viewcode-block" id="Server">
 <a class="viewcode-back" href="../../api.html#asteramisk.server.Server">[docs]</a>
@@ -69,14 +76,42 @@
 <span class="sd">        async def message_handler(ui: TextUI):</span>
 <span class="sd">            await ui.say(&quot;Hello, world!&quot;)</span>
 
-<span class="sd">        server = await Server.create()</span>
-<span class="sd">        await server.register_extension(&quot;1234&quot;, call_handler=call_handler, message_handler=message_handler)</span>
-<span class="sd">        await server.serve_forever()</span>
+<span class="sd">        async def main():</span>
+<span class="sd">            server: Server = await Server.create()</span>
+<span class="sd">            await server.register_extension(&quot;1234&quot;, call_handler=call_handler, message_handler=message_handler)</span>
+<span class="sd">            await server.serve_forever()</span>
+
+<span class="sd">        if __name__ == &quot;__main__&quot;:</span>
+<span class="sd">            asyncio.run(main())</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stasis_app</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_HOST</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">bindaddr</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_BINDADDR</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">AGI_SERVER_PORT</span>
+        <span class="c1"># Raise an exception if required variables are not configured</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_HOST&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERAMISK_HOST</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERAMISK_HOST&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PORT</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_AMI_PORT&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_USER</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_AMI_USER&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PASS</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_AMI_PASS&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PORT</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_ARI_PORT&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_USER</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_ARI_USER&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PASS</span><span class="p">:</span>
+            <span class="n">raise_not_configured</span><span class="p">(</span><span class="s2">&quot;ASTERISK_ARI_PASS&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Create semaphores to limit the number of concurrent calls and text conversations</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call_semaphore</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">MAX_CONCURRENT_CALLS</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">message_semaphore</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">MAX_CONCURRENT_CONVERSATIONS</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_message_session_lock</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+
+        <span class="c1"># A dictionary to store the dialplan priority at which each extension is registered</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span> <span class="o">=</span> <span class="p">{}</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="p">:</span> <span class="n">AudiosocketAsync</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AudiosocketAsync</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">Client</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
                 <span class="n">ari_host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
@@ -90,6 +125,9 @@
             <span class="c1"># Unique ID for Stasis application so that there are no conflicts with multiple instances</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span>
 
+        <span class="c1"># Create a dictionary of {channel_id: asyncio.Task} to store the handler tasks for each channel</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span> <span class="o">=</span> <span class="p">{}</span>
+
 <div class="viewcode-block" id="Server.register_extension">
 <a class="viewcode-back" href="../../api.html#asteramisk.server.Server.register_extension">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">register_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extension</span><span class="p">,</span> <span class="n">call_handler</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">message_handler</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
@@ -101,6 +139,11 @@
 <span class="sd">        :param call_handler: The function to call when the phone number is called. Must be a coroutine. Will be passed an instance of asteramisk.ui.VoiceUI</span>
 <span class="sd">        :param message_handler: The function to call when a message is sent to the phone number. Must be a coroutine. Will be passed an instance of asteramisk.ui.TextUI</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Convert to string</span>
+        <span class="n">extension</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">extension</span><span class="p">)</span>
+
+        <span class="c1"># Raise an exception if the extension is already registered</span>
         <span class="k">if</span> <span class="n">extension</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> is already registered&quot;</span><span class="p">)</span>
 
@@ -134,17 +177,89 @@
             <span class="p">)</span>
         <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
 
-        <span class="n">registration_action</span> <span class="o">=</span> <span class="n">panoramisk</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">Action</span><span class="p">({</span>
-            <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;DialPlanExtensionAdd&quot;</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">added_successfully</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">added_successfully</span><span class="p">:</span>
+            <span class="n">registration_action</span> <span class="o">=</span> <span class="n">panoramisk</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">Action</span><span class="p">({</span>
+                <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;DialPlanExtensionAdd&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;Context&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_CALL_CONTEXT</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">extension_type</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;call&#39;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_TEXT_CONTEXT</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;Extension&quot;</span><span class="p">:</span> <span class="n">extension</span><span class="p">,</span>
+                <span class="s2">&quot;Priority&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">],</span>
+                <span class="s2">&quot;Application&quot;</span><span class="p">:</span> <span class="s2">&quot;Stasis&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;ApplicationData&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;Replace&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span> <span class="c1"># Do not replace existing extension. If it exists, we need to increment the priority. This is so that we can have multiple instances of asteramisk running and each will pass the call to the next if it is overloaded</span>
+            <span class="p">})</span>
+
+            <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">registration_action</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;Response&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Success&quot;</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Registered extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> with type </span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2"> at priority </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">added_successfully</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;Response&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Error&quot;</span> <span class="ow">and</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;Message&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;That extension and priority already exist at that context&quot;</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> with priority </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span><span class="si">}</span><span class="s2"> already exists, probably another instance of asteramisk is running. Incrementing priority and trying again&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to register extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> with type </span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2">. Response: </span><span class="si">{</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Server.unregister_all_extensions">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.unregister_all_extensions">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">unregister_all_extensions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Unregisters from asterisk all phone numbers registered for this instance.</span>
+<span class="sd">        Is an async method</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Copy because we are going to remove items from the dictionary, which is not allowed during iteration</span>
+        <span class="n">extensions</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">extension</span> <span class="ow">in</span> <span class="n">extensions</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">unregister_extension</span><span class="p">(</span><span class="n">extension</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Server.unregister_extension">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.unregister_extension">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">unregister_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extension</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Unregisters a phone number from asterisk.</span>
+<span class="sd">        Is an async method</span>
+
+<span class="sd">        :param extension: The phone number to unregister</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Convert to string</span>
+        <span class="n">extension</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">extension</span><span class="p">)</span>
+
+        <span class="c1"># Raise an exception if the extension is not registered</span>
+        <span class="k">if</span> <span class="n">extension</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Extension </span><span class="si">{</span><span class="n">extension</span><span class="si">}</span><span class="s2"> is not registered and therefore cannot be unregistered&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Unregister from asterisk dialplan</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unregister_extension</span><span class="p">(</span><span class="n">extension</span><span class="p">,</span> <span class="s1">&#39;call&#39;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unregister_extension</span><span class="p">(</span><span class="n">extension</span><span class="p">,</span> <span class="s1">&#39;text&#39;</span><span class="p">)</span>
+
+        <span class="c1"># Remove from handlers</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_unregister_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extension</span><span class="p">,</span> <span class="n">extension_type</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Internally called to unregister an extension</span>
+<span class="sd">        Not a public API function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">manager</span> <span class="o">=</span> <span class="n">panoramisk</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">Manager</span><span class="p">(</span>
+                <span class="n">host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
+                <span class="n">port</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PORT</span><span class="p">,</span>
+                <span class="n">username</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_USER</span><span class="p">,</span>
+                <span class="n">secret</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_AMI_PASS</span><span class="p">,</span>
+                <span class="n">ssl</span><span class="o">=</span><span class="kc">False</span>
+            <span class="p">)</span>
+        <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+
+        <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">panoramisk</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">Action</span><span class="p">({</span>
+            <span class="s2">&quot;Action&quot;</span><span class="p">:</span> <span class="s2">&quot;DialPlanExtensionRemove&quot;</span><span class="p">,</span>
             <span class="s2">&quot;Context&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_CALL_CONTEXT</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">extension_type</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;call&#39;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_INCOMING_TEXT_CONTEXT</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="s2">&quot;Extension&quot;</span><span class="p">:</span> <span class="n">extension</span><span class="p">,</span>
-            <span class="s2">&quot;Priority&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-            <span class="s2">&quot;Application&quot;</span><span class="p">:</span> <span class="s2">&quot;Stasis&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;ApplicationData&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Replace&quot;</span><span class="p">:</span> <span class="s2">&quot;yes&quot;</span>
-        <span class="p">})</span>
+            <span class="s2">&quot;Priority&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">extension_priorities</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
+        <span class="p">}))</span>
 
-        <span class="k">await</span> <span class="n">manager</span><span class="o">.</span><span class="n">send_action</span><span class="p">(</span><span class="n">registration_action</span><span class="p">)</span>
         <span class="n">manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
 
 <div class="viewcode-block" id="Server.serve_forever">
@@ -157,6 +272,7 @@
         <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">geteuid</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Must be run as root&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisStart&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_start_handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisEnd&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_end_handler</span><span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
                 <span class="n">apps</span><span class="o">=</span><span class="p">[</span>
@@ -165,8 +281,7 @@
                 <span class="p">]</span>
             <span class="p">)</span>
         <span class="k">finally</span><span class="p">:</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="Server.close">
@@ -175,15 +290,37 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Close the server. Is an async method</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">unregister_all_extensions</span><span class="p">()</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="c1"># Cancel all tasks; hangup all calls</span>
+        <span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">task</span></div>
 
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ari_stasis_start_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stasis start for channel </span><span class="si">{</span><span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
-            <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_main_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">))</span>
+            <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_main_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="n">task</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Application </span><span class="si">{</span><span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> has no handler. Probably ok if the code that created it is also controlling it&quot;</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ari_stasis_end_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stasis end for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">channel</span><span class="o">.</span><span class="n">id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Canceling task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Waiting for task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> to finish&quot;</span><span class="p">)</span>
+                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> finished, removing from handler_tasks&quot;</span><span class="p">)</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> hung up but no task found for it.&quot;</span><span class="p">)</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_main_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -193,10 +330,23 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">channel</span> <span class="o">=</span> <span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span>
         <span class="n">extension_type</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;args&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;call&#39;</span><span class="p">:</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;text&#39;</span><span class="p">:</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_message_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+       <span class="c1"># Try/except is very important here, even though it doesn&#39;t do much</span>
+        <span class="c1"># Without this, any uncaught exception will just be swallowed and the call will just kinda hang.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;call&#39;</span><span class="p">:</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">extension_type</span> <span class="o">==</span> <span class="s1">&#39;text&#39;</span><span class="p">:</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_message_request_handler</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown extension type </span><span class="si">{</span><span class="n">extension_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="c1">## CancelledError is raised when the task is cancelled (call hung up)</span>
+            <span class="c1"># Let it propagate so that the task is cancelled properly</span>
+            <span class="c1"># If we don&#39;t do this, the ari event handler&#39;s get all hung up and next call will just hang</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> was cancelled&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_call_request_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -205,10 +355,41 @@
 <span class="sd">        Once per call.</span>
 <span class="sd">        Not a public API function</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">VoiceUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
-        <span class="n">extension</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;EXTEN&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
-        <span class="n">call_handler</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
-        <span class="k">await</span> <span class="n">call_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call request for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Check if we are overloaded</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">call_semaphore</span><span class="o">.</span><span class="n">locked</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Call semaphore is full, dropping call&quot;</span><span class="p">)</span>
+            <span class="c1"># Don&#39;t hang up, but continue in the dialplan</span>
+            <span class="c1"># This allows another node, registered at the next priority, to pick up the call if multiple instances are running. e.g. docker swarm</span>
+            <span class="c1"># If no other instance is running, the call will hang up anyway</span>
+            <span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">continueInDialplan</span><span class="p">()</span>
+            <span class="k">return</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Semaphore is not locked, we are not overloaded</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Entering call semaphore&quot;</span><span class="p">)</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">call_semaphore</span><span class="p">:</span>
+                <span class="c1"># Create a new UI for the call</span>
+                <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">VoiceUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+
+                <span class="c1"># Get the extension that was dialled and call the handler for it.</span>
+                <span class="n">extension</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;EXTEN&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+                <span class="n">call_handler</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="n">call_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span>
+                    <span class="c1"># Give some indication that the call_handler has finished, which is probably not intended</span>
+                    <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="s2">&quot;Thank you for calling. Goodbye.&quot;</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+                    <span class="c1"># CancelledError must be propagated, see note in _main_handler</span>
+                    <span class="k">raise</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+                    <span class="c1"># Let the user know that something went wrong</span>
+                    <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="s2">&quot;An error has occurred while handling your call. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.&quot;</span><span class="p">)</span>
+                    <span class="c1"># If an error occurs, hang up the call after playing the error message</span>
+                    <span class="c1"># Don&#39;t do this in finally, cause if its a CancelledError, we don&#39;t want to hang up because it already happened and would cause the app to hang</span>
+                    <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_message_request_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -222,19 +403,68 @@
         <span class="n">extension</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">getChannelVar</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;EXTEN&quot;</span><span class="p">))[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
 
         <span class="n">broker</span> <span class="o">=</span> <span class="k">await</span> <span class="n">MessageBroker</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">our_number</span><span class="o">=</span><span class="n">extension</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">broker</span><span class="o">.</span><span class="n">has_conversation</span><span class="p">(</span><span class="n">phone_number</span><span class="p">):</span>
-            <span class="c1"># Existing conversation, use the existing UI and simply pass the message to it via the broker</span>
-            <span class="k">await</span> <span class="n">broker</span><span class="o">.</span><span class="n">message_received</span><span class="p">(</span><span class="n">phone_number</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c1"># New conversation</span>
-            <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">TextUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">phone_number</span><span class="p">)</span>
-            <span class="n">_</span><span class="p">,</span> <span class="n">message_handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
-            <span class="k">await</span> <span class="n">message_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span></div>
+
+        <span class="c1"># Serialize the check-and-create transition. Otherwise two messages</span>
+        <span class="c1"># arriving together could create two TextUIs for the same number.</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_message_session_lock</span><span class="p">:</span>
+            <span class="k">if</span> <span class="k">await</span> <span class="n">broker</span><span class="o">.</span><span class="n">has_conversation</span><span class="p">(</span><span class="n">phone_number</span><span class="p">):</span>
+                <span class="k">if</span> <span class="k">await</span> <span class="n">broker</span><span class="o">.</span><span class="n">message_received</span><span class="p">(</span><span class="n">phone_number</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+                    <span class="k">return</span>
+
+            <span class="c1"># Check if we are overloaded before claiming a new conversation.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">message_semaphore</span><span class="o">.</span><span class="n">locked</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Message semaphore is full, dropping message.&quot;</span><span class="p">)</span>
+                <span class="k">await</span> <span class="n">channel</span><span class="o">.</span><span class="n">continueInDialplan</span><span class="p">()</span>
+                <span class="k">return</span>
+
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">message_semaphore</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">ui</span> <span class="o">=</span> <span class="k">await</span> <span class="n">TextUI</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">phone_number</span><span class="p">)</span>
+                <span class="k">await</span> <span class="n">broker</span><span class="o">.</span><span class="n">message_received</span><span class="p">(</span><span class="n">phone_number</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">message_semaphore</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+                <span class="k">raise</span>
+
+        <span class="n">_</span><span class="p">,</span> <span class="n">message_handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span><span class="p">[</span><span class="n">extension</span><span class="p">]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">message_handler</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="c1">## CancelledError must be propagated. See note in _main_handler</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="c1"># Let the user know that something went wrong</span>
+            <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="s2">&quot;An error has occurred while handling your message. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">message_semaphore</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Server.call_handler">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.call_handler">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">call_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ui</span><span class="p">:</span> <span class="n">VoiceUI</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        This is the default call handler.</span>
+<span class="sd">        It does nothing.</span>
+<span class="sd">        Override this method to handle calls or pass call_handler to the constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="Server.message_handler">
+<a class="viewcode-back" href="../../api.html#asteramisk.server.Server.message_handler">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">message_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ui</span><span class="p">:</span> <span class="n">TextUI</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        This is the default message handler.</span>
+<span class="sd">        It does nothing.</span>
+<span class="sd">        Override this method to handle messages or pass message_handler to the constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+</div>
 
 </pre></div>
 
           </div>
-          
+
         </div>
       </div>
       <div class="sphinxsidebar" role="navigation" aria-label="Main">
@@ -290,15 +520,15 @@
     </div>
     <div class="footer">
       &#169;2025, Darryl Martin.
-      
+
       |
       Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
-      
+
     </div>
 
-    
 
-    
+
+
   </body>
 </html>

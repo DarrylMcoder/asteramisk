@@ -44,17 +44,17 @@
 <li><p><a class="reference internal" href="#introduction-to-asteramisk" id="id1">Introduction to Asteramisk</a></p></li>
 </ul>
 </nav>
-<p><cite>Asteramisk</cite> is a Python library for the Asterisk PBX.
+<p><code class="docutils literal notranslate"><span class="pre">Asteramisk</span></code> is a Python library for the Asterisk PBX.
 I started working on this project about September or October 2024.
 It started as an attempt to build a telephone interface for a ride sharing system I was working on.
 While I was at it, I periodically gave up on the ride sharing project and started a simpler telephone project.
-projects that I have been working on use the same core code for interaction with Asterisk PBX.
+Since all of the projects that I have been working on use the same core code for interaction with Asterisk PBX,
 I decided to clean it all up and put it into a library for my own use and for anyone else who might find it useful.</p>
-<p><cite>Asteramisk</cite> is based on, or built on top of, the [panoramisk](<a class="reference external" href="https://github.com/gawel/panoramisk">https://github.com/gawel/panoramisk</a>) library.
-It provides a server for handling incoming calls and text messages and a <cite>Communicator</cite> class for creating outgoing calls and messaging conversations.
-Any communication, both phone calls and text message conversations (and possibly other forms of communication in the future), is represented by a <cite>UI</cite> object.
-Each form of communication has its own <cite>UI</cite> subclass, <cite>VoiceUI</cite> for phone calls and <cite>TextUI</cite> for text messages.
-<cite>UI</cite> objects provide methods loosely based on the [Twilio](<a class="reference external" href="https://www.twilio.com/docs">https://www.twilio.com/docs</a>) API, such as <cite>answer</cite>, <cite>play</cite>, <cite>say</cite>, <cite>gather</cite>, <cite>record</cite>, and <cite>hangup</cite>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">Asteramisk</span></code> is based on, or built on top of, the [panoramisk](<a class="reference external" href="https://github.com/gawel/panoramisk">https://github.com/gawel/panoramisk</a>) library.
+It provides a server for handling incoming calls and text messages and a <code class="docutils literal notranslate"><span class="pre">Communicator</span></code> class for creating outgoing calls and messaging conversations.
+Any communication, both phone calls and text message conversations (and possibly other forms of communication in the future), is represented by a <code class="docutils literal notranslate"><span class="pre">UI</span></code> object.
+Each form of communication has its own <code class="docutils literal notranslate"><span class="pre">UI</span></code> subclass, <code class="docutils literal notranslate"><span class="pre">VoiceUI</span></code> for phone calls and <code class="docutils literal notranslate"><span class="pre">TextUI</span></code> for text messages.
+<code class="docutils literal notranslate"><span class="pre">UI</span></code> objects provide methods loosely based on the [Twilio](<a class="reference external" href="https://www.twilio.com/docs">https://www.twilio.com/docs</a>) API, such as <code class="docutils literal notranslate"><span class="pre">answer</span></code>, <code class="docutils literal notranslate"><span class="pre">say</span></code>, <code class="docutils literal notranslate"><span class="pre">prompt</span></code>, <code class="docutils literal notranslate"><span class="pre">gather</span></code>, and <code class="docutils literal notranslate"><span class="pre">hangup</span></code>.</p>
 </section>
 
 

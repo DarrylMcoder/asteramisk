@@ -99,10 +99,10 @@ See the ``config`` module for a complete list of configuration variables.
         # Configure system information (optional)
         config.SYSTEM_PHONE_NUMBER = '1234567890' # A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint
         config.SYSTEM_NAME = 'Your Company Name' # A name that will be used in outgoing calls and text messages
+        config.GO_BACK_ON_STAR = True # Whether VoiceUI should treat DTMF * as a back-navigation command. Default is True
 
         # Optional configuration variables
         config.ASTERISK_SOUNDS_DIR = '/usr/share/asterisk/sounds' # The directory where Asterisk stores its sound files. You need to set this only if you have changed the default location on the Asterisk side
         config.ASTERISK_TTS_SOUNDS_SUBDIR = 'asteramisk' # The subdirectory where Asteramisk stores its TTS sound files. The default is fine, unless you don't like defaults, or unless you simply love writing unnecessary configuration.
         config.AGI_SERVER_HOST = '127.0.0.1' # The ip address to bind the AGI server to. Default is 127.0.0.1
         config.AGI_SERVER_PORT = 4753 # The port to bind the AGI server to. Default is 4753. You need to change this if you are running multiple instances of projects that use Asteramisk
-

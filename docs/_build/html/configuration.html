@@ -39,34 +39,34 @@
   <section id="configuration">
 <h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">¶</a></h1>
 <p>First, you need to configure Asterisk.
-You can find example configuration files in <cite>example_configs/</cite>.
-You should be able to copy the <cite>example_configs</cite> directory contents directly into <cite>/etc/asterisk/</cite>.
+You can find example configuration files in <code class="docutils literal notranslate"><span class="pre">example_configs/</span></code>.
+You should be able to copy the <code class="docutils literal notranslate"><span class="pre">example_configs</span></code> directory contents directly into <code class="docutils literal notranslate"><span class="pre">/etc/asterisk/</span></code>.
 You need to enable the Asterisk ARI interface and the Asterisk AMI interface.</p>
 <section id="ami-configuration">
 <h2>AMI configuration<a class="headerlink" href="#ami-configuration" title="Link to this heading">¶</a></h2>
 <p>Make sure the AMI interface is enabled in Asterisk.
-Open the file <cite>/etc/asterisk/manager.conf</cite> and verify that the following lines are present:</p>
+Open the file <code class="docutils literal notranslate"><span class="pre">/etc/asterisk/manager.conf</span></code> and verify that the following lines are present:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
 <span class="na">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
 <span class="na">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">5038</span>
 <span class="na">bindaddr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">0.0.0.0</span>
 </pre></div>
 </div>
-<p>In <cite>/etc/asterisk/manager.d/</cite>, create a file named <cite>yourusername.conf</cite> and add the following lines:</p>
+<p>In <code class="docutils literal notranslate"><span class="pre">/etc/asterisk/manager.d/</span></code>, create a file named <code class="docutils literal notranslate"><span class="pre">yourusername.conf</span></code> and add the following lines:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[yourusername]</span>
 <span class="na">secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yourpassword</span>
 <span class="na">read</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">all</span>
 <span class="na">write</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">all</span>
 </pre></div>
 </div>
-<p>This will enable the AMI interface for the user <cite>yourusername</cite> with password <cite>yourpassword</cite>.
+<p>This will enable the AMI interface for the user <code class="docutils literal notranslate"><span class="pre">yourusername</span></code> with password <code class="docutils literal notranslate"><span class="pre">yourpassword</span></code>.
 You can then configure Asteramisk to use this user when connecting to Asterisk AMI.</p>
 </section>
 <section id="ari-configuration">
 <h2>ARI configuration<a class="headerlink" href="#ari-configuration" title="Link to this heading">¶</a></h2>
 <p>Make sure the ARI interface is enabled in Asterisk.
 This is a little different from the AMI interface, but not any harder.
-Open the file <cite>/etc/asterisk/ari.conf</cite> and verify that the following lines are present:</p>
+Open the file <code class="docutils literal notranslate"><span class="pre">/etc/asterisk/ari.conf</span></code> and verify that the following lines are present:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
 <span class="na">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
 <span class="na">pretty</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">yes</span>
@@ -79,8 +79,8 @@ Open the file <cite>/etc/asterisk/ari.conf</cite> and verify that the following 
 <span class="na">password</span><span class="o">=</span><span class="s">youraripassword</span>
 </pre></div>
 </div>
-<p>This will enable the ARI interface for the user <cite>yourariusername</cite> with password <cite>youraripassword</cite>.</p>
-<p>Since the Rest API depends on Asterisk’s built-in mini-http server, you also need to make sure it is enabled in <cite>/etc/asterisk/http.conf</cite>:</p>
+<p>This will enable the ARI interface for the user <code class="docutils literal notranslate"><span class="pre">yourariusername</span></code> with password <code class="docutils literal notranslate"><span class="pre">youraripassword</span></code>.</p>
+<p>Since the Rest API depends on Asterisk’s built-in mini-http server, you also need to make sure it is enabled in <code class="docutils literal notranslate"><span class="pre">/etc/asterisk/http.conf</span></code>:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
 <span class="na">enabled</span><span class="o">=</span><span class="s">yes</span>
 <span class="na">bindaddr</span><span class="o">=</span><span class="s">0.0.0.0</span>
@@ -95,9 +95,9 @@ You need to enable them before Asteramisk will work.</p>
 <section id="asteramisk-configuration">
 <h2>Asteramisk configuration<a class="headerlink" href="#asteramisk-configuration" title="Link to this heading">¶</a></h2>
 <p>Next, you need to configure Asteramisk to connect to your Asterisk PBX.
-This is done by importing the <cite>config</cite> module and setting the following variables.
+This is done by importing the <code class="docutils literal notranslate"><span class="pre">config</span></code> module and setting the following variables.
 Some of these variables are optional, but you need to set the ones that are required to make Asteramisk work.
-See the <cite>config</cite> module for a complete list of configuration variables.</p>
+See the <code class="docutils literal notranslate"><span class="pre">config</span></code> module for a complete list of configuration variables.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 
 <span class="c1"># Required configuration variables</span>
@@ -123,6 +123,7 @@ See the <cite>config</cite> module for a complete list of configuration variable
 <span class="c1"># Configure system information (optional)</span>
 <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_PHONE_NUMBER</span> <span class="o">=</span> <span class="s1">&#39;1234567890&#39;</span> <span class="c1"># A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint</span>
 <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_NAME</span> <span class="o">=</span> <span class="s1">&#39;Your Company Name&#39;</span> <span class="c1"># A name that will be used in outgoing calls and text messages</span>
+<span class="n">config</span><span class="o">.</span><span class="n">GO_BACK_ON_STAR</span> <span class="o">=</span> <span class="kc">True</span> <span class="c1"># Whether VoiceUI should treat DTMF * as a back-navigation command. Default is True</span>
 
 <span class="c1"># Optional configuration variables</span>
 <span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_SOUNDS_DIR</span> <span class="o">=</span> <span class="s1">&#39;/usr/share/asterisk/sounds&#39;</span> <span class="c1"># The directory where Asterisk stores its sound files. You need to set this only if you have changed the default location on the Asterisk side</span>

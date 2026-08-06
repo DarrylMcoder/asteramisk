@@ -51,11 +51,13 @@ class Config:
     """ The name of your system. Used as the caller ID name when making outgoing calls, if not specified in your code. """
     SYSTEM_VOICE = os.getenv('SYSTEM_VOICE', 'en-US-Neural2-J')
     """ The voice to use when speaking to the user. Default is en-US-Neural2-J. See https://cloud.google.com/text-to-speech/docs/voices for all available voices """
+    GO_BACK_ON_STAR = os.getenv('GO_BACK_ON_STAR', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+    """ Whether VoiceUI should treat DTMF * as a back-navigation command. Default is true. """
 
     DEFAULT_REALTIME_GPT_MODEL = os.getenv('DEFAULT_REALTIME_GPT_MODEL', 'gpt-realtime-2') # Only gpt-realtime-2 seems to work currently
-    """ The default model to use for when connecting to the OpenAI Realtime API using the UI's connect_openai_agent method. Default is gpt-4o-mini-realtime-preview """
+    """ The default model used by UI.run_realtime_agent(). Default is gpt-4o-mini-realtime-preview """
     DEFAULT_GPT_MODEL = os.getenv('DEFAULT_GPT_MODEL', 'gpt-4o-mini')
-    """ The default model to use for when connecting to the OpenAI API using the UI's connect_openai_agent method. Default is gpt-4o-mini """
+    """ The default model used by UI.run_agent(). Default is gpt-4o-mini """
 
     ADMIN_PHONE_NUMBER = os.getenv('ADMIN_PHONE_NUMBER')
     """ The default phone number for the notifier module to use wnen you send an error message. """

@@ -16,36 +16,37 @@
     <script src="../../../_static/copybutton.js?v=f281be69"></script>
     <link rel="index" title="Index" href="../../../genindex.html" />
     <link rel="search" title="Search" href="../../../search.html" />
-   
-  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
-  
 
-  
-  
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+
+
+
+
 
   </head><body>
-  
+
 
     <div class="document">
       <div class="documentwrapper">
         <div class="bodywrapper">
-          
+
 
           <div class="body" role="main">
-            
+
   <h1>Source code for asteramisk.ui.voice_ui</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">aioari</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">websockets</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">suppress</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">Agent</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">agents.realtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">RealtimeAgent</span><span class="p">,</span> <span class="n">RealtimeRunner</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">samplerate</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">suppress</span><span class="p">,</span> <span class="n">asynccontextmanager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">TContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">agents.realtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">RealtimeAgent</span><span class="p">,</span> <span class="n">RealtimeRunner</span><span class="p">,</span> <span class="n">RealtimeRunConfig</span><span class="p">,</span> <span class="n">RealtimeSessionModelSettings</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">UI</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">HangupException</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">HangupException</span><span class="p">,</span> <span class="n">GoBackException</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.tts</span><span class="w"> </span><span class="kn">import</span> <span class="n">TTSEngine</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.transcriber</span><span class="w"> </span><span class="kn">import</span> <span class="n">TranscribeEngine</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">asteramisk.internal.ari_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">AriClient</span>
@@ -56,6 +57,9 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
+<span class="n">ASTERISK_SAMPLE_RATE</span> <span class="o">=</span> <span class="mi">8000</span>
+<span class="n">OPENAI_SAMPLE_RATE</span> <span class="o">=</span> <span class="mi">24000</span>
+
 <div class="viewcode-block" id="VoiceUI">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">VoiceUI</span><span class="p">(</span><span class="n">UI</span><span class="p">):</span>
@@ -64,36 +68,41 @@
 <span class="sd">    Provides methods such as answer(), hangup(), say(), ask_yes_no(), prompt(), and gather()</span>
 <span class="sd">    API should be the same as the base UI class and any other UI subclasses (TextUI, etc.)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_VOICE</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">__create__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI.__create__&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">channel</span> <span class="o">=</span> <span class="n">channel</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">voice</span> <span class="o">=</span> <span class="n">voice</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voice</span> <span class="o">=</span> <span class="n">voice</span> <span class="k">if</span> <span class="n">voice</span> <span class="k">else</span> <span class="n">config</span><span class="o">.</span><span class="n">SYSTEM_VOICE</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">answered</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">Client</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
         <span class="n">audiosocket</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AudiosocketAsync</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
         <span class="n">stream_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">external_media_channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">externalMedia</span><span class="p">(</span>
-            <span class="n">external_host</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">AUDIOSOCKET_PORT</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">external_host</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERAMISK_HOST</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="c1"># Use the configured host and the possibly dynamic port in case no port was specified in the config</span>
             <span class="n">encapsulation</span><span class="o">=</span><span class="s2">&quot;audiosocket&quot;</span><span class="p">,</span>
             <span class="n">app</span><span class="o">=</span><span class="s2">&quot;asteramisk&quot;</span><span class="p">,</span>
             <span class="n">transport</span><span class="o">=</span><span class="s2">&quot;tcp&quot;</span><span class="p">,</span>
             <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;slin&quot;</span><span class="p">,</span>
             <span class="n">data</span><span class="o">=</span><span class="n">stream_id</span><span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Bridge</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">bridges</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">&quot;mixing&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Bridge</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">bridges</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">&quot;mixing&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bridged_uis</span> <span class="o">=</span> <span class="p">[]</span>
 
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">addChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">external_media_channel</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">addChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="o">.</span><span class="n">addChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">external_media_channel</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="o">.</span><span class="n">addChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="p">:</span> <span class="n">AudioSocketConnectionAsync</span> <span class="o">=</span> <span class="k">await</span> <span class="n">audiosocket</span><span class="o">.</span><span class="n">accept</span><span class="p">(</span><span class="n">stream_id</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">on_event</span><span class="p">(</span><span class="s1">&#39;StasisEnd&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_on_channel_stasis_end</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">on_event</span><span class="p">(</span><span class="s1">&#39;ChannelDtmfReceived&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_on_channel_dtmf_received</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">on_event</span><span class="p">(</span><span class="s2">&quot;StasisEnd&quot;</span><span class="p">,</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_channel_stasis_end</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">on_event</span><span class="p">(</span><span class="s1">&#39;ChannelDtmfReceived&#39;</span><span class="p">,</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_channel_dtmf_received</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="p">:</span> <span class="n">TTSEngine</span> <span class="o">=</span> <span class="k">await</span> <span class="n">TTSEngine</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">transcribe_engine</span><span class="p">:</span> <span class="n">TranscribeEngine</span> <span class="o">=</span> <span class="k">await</span> <span class="n">TranscribeEngine</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_out_media_exchanger</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">to_asterisk_resampler</span> <span class="o">=</span> <span class="n">samplerate</span><span class="o">.</span><span class="n">Resampler</span><span class="p">(</span><span class="s1">&#39;sinc_best&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">from_asterisk_resampler</span> <span class="o">=</span> <span class="n">samplerate</span><span class="o">.</span><span class="n">Resampler</span><span class="p">(</span><span class="s1">&#39;sinc_best&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
         <span class="k">await</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__create__</span><span class="p">()</span>
 
     <span class="nd">@property</span>
@@ -103,6 +112,30 @@
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_unique_id</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remote_number</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        The phone number of the other end of the call</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s2">&quot;caller&quot;</span><span class="p">][</span><span class="s2">&quot;number&quot;</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remote_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        The name (CALLERID name if available) of the other end of the call</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s2">&quot;caller&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">local_number</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        The phone number of our end of the call</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s2">&quot;dialplan&quot;</span><span class="p">][</span><span class="s2">&quot;exten&quot;</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;&quot;</span>
 
 <div class="viewcode-block" id="VoiceUI.answer">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.answer">[docs]</a>
@@ -116,35 +149,24 @@
 
 <div class="viewcode-block" id="VoiceUI.hangup">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.hangup">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">hangup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">hangup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">wait</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Hangs up the call.</span>
+<span class="sd">        :param wait: Whether to wait for the audio to finish playing</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI.hangup&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;out_media_task&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_agent_task&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_audio_task&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">wait</span><span class="p">:</span>
+            <span class="c1"># Wait for the audio to finish playing</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_done_speaking</span><span class="p">()</span>
 
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="c1"># Clean up ARI resources</span>
-        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">destroy</span><span class="p">()</span>
-        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">external_media_channel</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
-        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span></div>
+        <span class="c1"># Cancel all tasks related to the call</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI.hangup: awaiting _out_media_task&quot;</span><span class="p">)</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_media_task</span></div>
 
+
+        <span class="c1"># Resources are cleaned up in _out_media_exchanger&#39;s finally block</span>
 
 <div class="viewcode-block" id="VoiceUI.say">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.say">[docs]</a>
@@ -158,37 +180,41 @@
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI.say: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="c1"># Ensure the call is answered, since we can&#39;t hear anything otherwise</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_answered</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_go_back</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;UI is inactive, cannot say(). User probably hung up&quot;</span><span class="p">)</span>
 
         <span class="c1"># Simply add the text to the queue, the _out_media_exchanger will pick it up</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">text</span><span class="p">)</span></div>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">text</span><span class="p">))</span></div>
 
 
 <div class="viewcode-block" id="VoiceUI.prompt">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.prompt">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">hint_phrases</span><span class="o">=</span><span class="p">[],</span> <span class="n">hint_boost</span><span class="o">=</span><span class="mf">10.0</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Prompt the user for input</span>
 <span class="sd">        :param text: Text to prompt the user</span>
+<span class="sd">        :param hint_phrases: list Biases the transcription towards these phrases</span>
+<span class="sd">        :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely</span>
 <span class="sd">        :return: The user&#39;s input</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI.prompt: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="c1"># Ensure the call is answered, since we can&#39;t hear anything otherwise</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_answered</span><span class="p">()</span>
-
-        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;UI is inactive, cannot prompt(). User probably hung up&quot;</span><span class="p">)</span>
-
-        <span class="c1"># Wait till the queue is empty</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
-        <span class="c1"># Also wait till the last item in the queue has finished playing</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
-        <span class="n">transcription</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">transcribe_engine</span><span class="o">.</span><span class="n">transcribe_from_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">done_speaking</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="n">transcription</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">transcribe_engine</span><span class="o">.</span><span class="n">transcribe_from_stream</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="p">,</span>
+                <span class="n">hint_phrases</span><span class="o">=</span><span class="n">hint_phrases</span><span class="p">,</span>
+                <span class="n">hint_boost</span><span class="o">=</span><span class="n">hint_boost</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI.prompt transcription: </span><span class="si">{</span><span class="n">transcription</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="c1"># Immediately stop audio playback when we get the transcription</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">transcription</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="s2">&quot;I didn&#39;t get that. Please try again.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">transcription</span></div>
 
 
@@ -200,13 +226,19 @@
 <span class="sd">        :param text: Text to prompt the user</span>
 <span class="sd">        :return: The user&#39;s input</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_answered</span><span class="p">()</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;UI is inactive, cannot gather(). User probably hung up&quot;</span><span class="p">)</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">done_speaking</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_dtmf</span><span class="p">(</span><span class="n">num_digits</span><span class="o">=</span><span class="n">num_digits</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="VoiceUI.send_dtmf">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.send_dtmf">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send_dtmf</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">digits</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Send dtmf digits to the remote phone</span>
+<span class="sd">        :param digits: The digits to send.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">sendDTMF</span><span class="p">(</span><span class="n">dtmf</span><span class="o">=</span><span class="n">digits</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="VoiceUI.ask_yes_no">
@@ -217,8 +249,16 @@
 <span class="sd">        :param text: Text to prompt the user</span>
 <span class="sd">        :return: True if the user answers yes or False if the user answers no</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2"> Press 1 for yes or 2 for no&quot;</span>
-        <span class="n">digits</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">prompt</span> <span class="o">=</span> <span class="s2">&quot;Press 1 for yes or 2 for no&quot;</span>
+        <span class="n">digits</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">prompt</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">prompt</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">digits</span><span class="p">:</span>
+            <span class="n">error_text</span> <span class="o">=</span> <span class="s2">&quot;You did not press any digit. Please try again&quot;</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">error_text</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ask_yes_no</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">digits</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;1&#39;</span><span class="p">,</span> <span class="s1">&#39;2&#39;</span><span class="p">]:</span>
+            <span class="n">error_text</span> <span class="o">=</span> <span class="s2">&quot;Your input was invalid. Please try again. &quot;</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">say</span><span class="p">(</span><span class="n">error_text</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ask_yes_no</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">digits</span> <span class="o">==</span> <span class="s1">&#39;1&#39;</span></div>
 
 
@@ -228,118 +268,236 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns an async generator that yields transcriptions as they come</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">async</span> <span class="k">for</span> <span class="n">transcript</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">transcribe_engine</span><span class="o">.</span><span class="n">streaming_transcribe_from_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="p">):</span>
-            <span class="c1"># Immediately stop audio playback when we get a new transcription</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
-            <span class="k">yield</span> <span class="n">transcript</span></div>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transcribe_engine</span><span class="o">.</span><span class="n">streaming_transcribe_from_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">transcript</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="n">stream</span><span class="o">.</span><span class="fm">__anext__</span><span class="p">())</span>
+                    <span class="k">except</span> <span class="ne">StopAsyncIteration</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="c1"># Immediately stop audio playback when we get a new transcription</span>
+                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
+                    <span class="k">yield</span> <span class="n">transcript</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">stream</span><span class="o">.</span><span class="n">aclose</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">GeneratorExit</span><span class="p">:</span>
+            <span class="k">pass</span></div>
 
 
-<div class="viewcode-block" id="VoiceUI.connect_openai_agent">
-<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.connect_openai_agent">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="VoiceUI.read_audio">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.read_audio">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_audio</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Connects the voice UI to an OpenAI agent</span>
-<span class="sd">        Example usage:</span>
+<span class="sd">        Returns audio data. Must be called repeatedly to get more audio</span>
+<span class="sd">        :return: Audio data</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">read</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="VoiceUI.write_audio">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.write_audio">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_audio</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">audio</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Writes audio data to be played to the remote party</span>
+<span class="sd">        You do not need to worry about timing.</span>
+<span class="sd">        Just dump the audio data into this method and it will be played</span>
+<span class="sd">        :param audio: Audio data in 8000 Hz PCM</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">audio</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="VoiceUI.done_speaking">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.done_speaking">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">done_speaking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Wait for all enqueued audio to finish playing</span>
+<span class="sd">        Use after a call to say(), ask_yes_no(), gather(), etc in order to wait till the user has actually heard the text</span>
+<span class="sd">        say(), etc by default, will enqueue the text to be played, and return immediately</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Wait till every line of text has been sent to the player</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_done_speaking</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="VoiceUI.stop_speaking">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.stop_speaking">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop_speaking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Immediately stop audio playback</span>
+<span class="sd">        Use to interrupt audio when the user starts speaking, etc</span>
+<span class="sd">        When using AI agents with run_agent() or run_realtime_agent(), this is used internally to interrupt the current output when an agent&#39;s output gaurdrails are triggered</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Clear the text queue</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">empty</span><span class="p">():</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+            <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">QueueEmpty</span><span class="p">:</span>
+                <span class="k">break</span>
+        <span class="c1"># Immediately stop audio playback</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="VoiceUI.run_realtime_agent">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.run_realtime_agent">[docs]</a>
+    <span class="nd">@asynccontextmanager</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_realtime_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">TContext</span> <span class="o">=</span> <span class="p">{}):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Connects a realtime agent to the UI</span>
+<span class="sd">        For cheaper and slower non-realtime agents, use the run_agent method.</span>
+<span class="sd">        :param agent: The OpenAI agents.realtime.RealtimeAgent to connect to</span>
+<span class="sd">        :param talk_first: Whether or not to cause the agent to speak first. If False, the agent will wait for the user to speak</span>
+<span class="sd">        :param model: The openai model to use for the agent</span>
+<span class="sd">        :param voice: The voice to use for the agent. Some options are cedar (male) and marin (female)</span>
+<span class="sd">        :param context: The context to use for the agent. This is passed to any agent tool calls, etc. Read about it in the OpenAI agents docs</span>
+
+<span class="sd">        Use this method almost like you would use the openai agents API</span>
+
 <span class="sd">        .. code-block:: python</span>
+
 <span class="sd">            from asteramisk.ui import VoiceUI</span>
-<span class="sd">            from asteramisk.server import Server</span>
+<span class="sd">            from agents.realtime import RealtimeAgent</span>
 
 <span class="sd">            async def call_handler(ui: VoiceUI):</span>
 <span class="sd">                await ui.answer()</span>
 <span class="sd">                await ui.say(&quot;Passing control to OpenAI agent&quot;)</span>
-<span class="sd">                bob = RealtimeAgent(</span>
+<span class="sd">                agent = RealtimeAgent(</span>
 <span class="sd">                    name=&quot;Bob&quot;,</span>
-<span class="sd">                    instructions=&quot;Your agent instructions&quot;</span>
+<span class="sd">                    instructions=&quot;Your agent instructions&quot;,</span>
+<span class="sd">                    tools=[]</span>
 <span class="sd">                )</span>
-<span class="sd">                await ui.connect_openai_agent(bob, model=&quot;gpt-4o-realtime-preview&quot;, voice=&quot;Cedar&quot;)</span>
-<span class="sd">                # Control of the conversation is now passed to the OpenAI agent</span>
-<span class="sd">                # You can use OpenAI&#39;s tool calling to manage your conversation flow</span>
-<span class="sd">                # You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio</span>
+<span class="sd">                async with ui.run_realtime_agent(agent) as session:</span>
+<span class="sd">                    async for event in session:</span>
+<span class="sd">                        # Audio is already handled for you.</span>
+<span class="sd">                        pass</span>
 
-<span class="sd">        :param agent: The OpenAI agent to connect to, either an agents.Agent or agents.realtime.RealtimeAgent</span>
-<span class="sd">        :param talk_first: Whether or not the agent should speak first</span>
-<span class="sd">        :param model: The OpenAI model to use</span>
-<span class="sd">        :param voice: The OpenAI realtime voice to use. Only has an effect if agent is an agents.realtime.RealtimeAgent</span>
-<span class="sd">        :return: A task that will run the OpenAI agent. You can await this task to wait for the agent to finish</span>
+<span class="sd">        :return: An async generator that yields events from the agent</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_run_agent_task</span><span class="p">():</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI.connect_openai_agent._run_agent_task&quot;</span><span class="p">)</span>
-            <span class="k">nonlocal</span> <span class="n">model</span> <span class="c1"># We might change the model so we need to declare it a nonlocal</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">Agent</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_text_agent</span><span class="p">(</span><span class="n">agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">talk_first</span><span class="o">=</span><span class="n">talk_first</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">)</span>
-            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">RealtimeAgent</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">set_resampling</span><span class="p">(</span><span class="n">rate</span><span class="o">=</span><span class="mi">24000</span><span class="p">,</span> <span class="n">channels</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">audio_format</span><span class="o">=</span><span class="s2">&quot;s16le&quot;</span><span class="p">)</span>
-                <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                    <span class="c1"># Use the cheaper mini model rather than the default GPT-4o</span>
-                    <span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">DEFAULT_REALTIME_GPT_MODEL</span>
-                <span class="n">runner</span> <span class="o">=</span> <span class="n">RealtimeRunner</span><span class="p">(</span><span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="p">{</span>
-                    <span class="s2">&quot;model_settings&quot;</span><span class="p">:</span> <span class="p">{</span>
-                        <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
-                        <span class="s2">&quot;modalities&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;audio&quot;</span><span class="p">],</span>
-                        <span class="s2">&quot;voice&quot;</span><span class="p">:</span> <span class="n">voice</span>
-                    <span class="p">}</span>
-                <span class="p">})</span>
-                <span class="k">async</span> <span class="k">with</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">RealtimeAgent</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;agent must be an agents.realtime.RealtimeAgent. To use a non-realtime agent, use the run_agent method instead.&quot;</span><span class="p">)</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">asterisk_to_agent_looper</span><span class="p">(</span><span class="n">session</span><span class="p">):</span>
+            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="n">audio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+                <span class="c1"># Convert to 32 bit numpy array for resampling</span>
+                <span class="n">audio_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">frombuffer</span><span class="p">(</span><span class="n">audio</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+                <span class="c1"># Resample to 24000 Hz</span>
+                <span class="n">from_asterisk_ratio</span> <span class="o">=</span> <span class="n">OPENAI_SAMPLE_RATE</span> <span class="o">/</span> <span class="n">ASTERISK_SAMPLE_RATE</span>
+                <span class="n">resampled</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">from_asterisk_resampler</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">audio_np</span><span class="p">,</span> <span class="n">from_asterisk_ratio</span><span class="p">)</span>
+
+                <span class="c1"># Convert back to bytes</span>
+                <span class="n">resampled</span> <span class="o">=</span> <span class="n">resampled</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span><span class="o">.</span><span class="n">tobytes</span><span class="p">()</span>
+                <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_audio</span><span class="p">(</span><span class="n">resampled</span><span class="p">)</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_gen</span><span class="p">():</span>
+            <span class="k">nonlocal</span> <span class="n">model</span><span class="p">,</span> <span class="n">voice</span><span class="p">,</span> <span class="n">context</span>
+            <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">DEFAULT_REALTIME_GPT_MODEL</span>
+
+            <span class="n">runner</span> <span class="o">=</span> <span class="n">RealtimeRunner</span><span class="p">(</span><span class="n">starting_agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">RealtimeRunConfig</span><span class="p">(</span>
+                <span class="n">model_settings</span><span class="o">=</span><span class="n">RealtimeSessionModelSettings</span><span class="p">(</span>
+                    <span class="n">model_name</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+                    <span class="n">modalities</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;audio&quot;</span><span class="p">],</span>
+                    <span class="n">voice</span><span class="o">=</span><span class="n">voice</span>
+                <span class="p">)</span>
+            <span class="p">))</span>
+
+            <span class="k">async</span> <span class="k">with</span> <span class="k">await</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">context</span><span class="o">=</span><span class="n">context</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1"># Make the agent greet the caller if talk_first</span>
                     <span class="k">if</span> <span class="n">talk_first</span><span class="p">:</span>
-                        <span class="c1"># The agent is expected to speak first. E.g. answering a phone call</span>
-                        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">websockets</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConnectionClosed</span><span class="p">):</span>
-                            <span class="c1"># Clean up should be handled elsewhere so just swallow the exception</span>
-                            <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="s2">&quot;New call, greet the caller.&quot;</span><span class="p">)</span>
-                    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">dtmf_event_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
-                        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">websockets</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConnectionClosed</span><span class="p">):</span>
-                            <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s1">&#39;digit&#39;</span><span class="p">])</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">on_event</span><span class="p">(</span><span class="s1">&#39;ChannelDtmfReceived&#39;</span><span class="p">,</span> <span class="n">dtmf_event_handler</span><span class="p">)</span>
-                    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">audio_loop</span><span class="p">():</span>
-                        <span class="c1"># Directly pass audio from the UI to the OpenAI session</span>
-                        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span><span class="p">:</span>
-                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;audio_loop: Waiting for audio&quot;</span><span class="p">)</span>
-                            <span class="n">audio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-                            <span class="k">try</span><span class="p">:</span>
-                                <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_audio</span><span class="p">(</span><span class="n">audio</span><span class="p">)</span>
-                            <span class="k">except</span> <span class="n">websockets</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConnectionClosed</span><span class="p">:</span>
-                                <span class="k">break</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">audio_loop</span><span class="p">())</span>
+                        <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="s2">&quot;New call, greet the caller.&quot;</span><span class="p">)</span>
+
+                    <span class="c1"># Start task to send audio from Asterisk to the agent</span>
+                    <span class="n">asterisk_to_agent_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">asterisk_to_agent_looper</span><span class="p">(</span><span class="n">session</span><span class="p">))</span>
                     <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">session</span><span class="p">:</span>
-                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
-                        <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio&quot;</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;agent_start&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Agent started: </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">agent</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;agent_end&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Agent ended: </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">agent</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;handoff&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Handoff from </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">from_agent</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">to_agent</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;tool_start&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tool started: </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;tool_end&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tool ended: </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">. Output: </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio_end&quot;</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Audio ended&quot;</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio&quot;</span><span class="p">:</span>
+                            <span class="c1"># Resample and play the audio</span>
                             <span class="n">audio</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">audio</span><span class="o">.</span><span class="n">data</span>
-                            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">audio</span><span class="p">)</span>
+                            <span class="c1"># Read from buffer as PCM 16-bit and convert to 32-bit for the resampler</span>
+                            <span class="n">audio_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">frombuffer</span><span class="p">(</span><span class="n">audio</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+                            <span class="c1"># Calculate the resampling ratio; output_sample_rate / input_sample_rate</span>
+                            <span class="n">to_asterisk_ratio</span> <span class="o">=</span> <span class="n">ASTERISK_SAMPLE_RATE</span> <span class="o">/</span> <span class="n">OPENAI_SAMPLE_RATE</span>
+                            <span class="n">resampled</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_asterisk_resampler</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">audio_np</span><span class="p">,</span> <span class="n">to_asterisk_ratio</span><span class="p">)</span>
+                            <span class="c1"># Convert back to 16-bit PCM bytes for Asterisk</span>
+                            <span class="n">resampled</span> <span class="o">=</span> <span class="n">resampled</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span><span class="o">.</span><span class="n">tobytes</span><span class="p">()</span>
+                            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_audio</span><span class="p">(</span><span class="n">resampled</span><span class="p">)</span>
                         <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;audio_interrupted&quot;</span><span class="p">:</span>
-                            <span class="c1"># Audio was interrupted, stop speaking and listen</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Audio interrupted&quot;</span><span class="p">)</span>
+                            <span class="c1"># Stop audio playback</span>
                             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
-                        <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;raw_model_event&quot;</span><span class="p">:</span>
-                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                            <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;raw_server_event&quot;</span><span class="p">:</span>
-                                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;     </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                         <span class="k">elif</span> <span class="n">event</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span>
-                            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OpenAI session error: </span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;agent must be an agents.Agent or agents.realtime.RealtimeAgent&quot;</span><span class="p">)</span>
+                            <span class="k">pass</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">_run_agent_task</span><span class="p">())</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span></div>
+                        <span class="c1"># Yield the event so the caller can use it</span>
+                        <span class="k">yield</span> <span class="n">event</span>
+
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="c1"># Agent session ended</span>
+                    <span class="n">asterisk_to_agent_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                        <span class="k">await</span> <span class="n">asterisk_to_agent_task</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">_gen</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># Context manager ended</span>
+            <span class="k">pass</span></div>
 
 
-<div class="viewcode-block" id="VoiceUI.disconnect_openai_agent">
-<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.disconnect_openai_agent">[docs]</a>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">disconnect_openai_agent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<div class="viewcode-block" id="VoiceUI.bridge">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.bridge">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">bridge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ui</span><span class="p">,</span> <span class="n">absorbDTMF</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">mute</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Disconnects the voice UI from any currently connected OpenAI agent.</span>
-<span class="sd">        Currently quite buggy so use with caution.</span>
-<span class="sd">        Once connected, agents generally run until the conversation ends.</span>
+<span class="sd">        Bridges two voice UIs together</span>
+<span class="sd">        Media will flow between the two UIs</span>
+<span class="sd">        :param ui: The UI to bridge to</span>
+<span class="sd">        :param absorbDTMF: Whether to absorb (ignore or disable) DTMF events from &#39;ui&#39;</span>
+<span class="sd">        :param mute: Whether to mute audio from &#39;ui&#39;</span>
+<span class="sd">        :return: None</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">stop_resampling</span><span class="p">()</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_audio_task&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_audio_task</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_agent_task&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_agent_task</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+        <span class="k">if</span> <span class="n">ui</span><span class="o">.</span><span class="n">ui_type</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">UIType</span><span class="o">.</span><span class="n">VOICE</span><span class="p">:</span>
+            <span class="c1"># ARI doesn&#39;t take bools but &#39;True&#39;/&#39;False&#39; strings. </span>
+            <span class="n">absorbDTMF</span> <span class="o">=</span> <span class="s2">&quot;True&quot;</span> <span class="k">if</span> <span class="n">absorbDTMF</span> <span class="k">else</span> <span class="s2">&quot;False&quot;</span>
+            <span class="n">mute</span> <span class="o">=</span> <span class="s2">&quot;True&quot;</span> <span class="k">if</span> <span class="n">mute</span> <span class="k">else</span> <span class="s2">&quot;False&quot;</span>
+
+            <span class="c1"># Add the new UI to this UI&#39;s bridge</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="o">.</span><span class="n">addChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="n">ui</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">absorbDTMF</span><span class="o">=</span><span class="n">absorbDTMF</span><span class="p">,</span> <span class="n">mute</span><span class="o">=</span><span class="n">mute</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_bridged_uis</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Can only bridge VoiceUIs to VoiceUIs&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="VoiceUI.unbridge">
+<a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.unbridge">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">unbridge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ui</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Disconnect a previously bridged UI.</span>
+<span class="sd">        Media will cease to flow between them</span>
+<span class="sd">        :param: ui: Previously bridged UI to unbridge from</span>
+<span class="sd">        :return: None</span>
+<span class="sd">        :raise: ValueError: If no such Ui was ever bridged</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">ui</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridged_uis</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No such UI was ever bridged. Unable to unbridge&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="o">.</span><span class="n">removeChannel</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="n">ui</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bridged_uis</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">ui</span><span class="p">)</span></div>
 
 
     <span class="c1">### Voice UI specific methods ###</span>
@@ -347,12 +505,17 @@
 <div class="viewcode-block" id="VoiceUI.control_say">
 <a class="viewcode-back" href="../../../api.html#asteramisk.ui.voice_ui.VoiceUI.control_say">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">control_say</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
-        <span class="c1"># Wait till all audio has finished playing</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI.control_say&quot;</span><span class="p">)</span>
         <span class="c1"># Speak text, allowing rewind and fast forward</span>
-        <span class="n">filename</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">tts_to_file</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">voice</span><span class="p">,</span> <span class="n">ast_filename</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">tts_to_file</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">voice</span><span class="p">,</span> <span class="n">ast_filename</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="c1"># Since this doesn&#39;t actually use the queue, make sure this doesn&#39;t interfere with previously queued audio</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">done_speaking</span><span class="p">()</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">playback</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">play</span><span class="p">(</span><span class="n">media</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;sound:</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">playback</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">play</span><span class="p">(</span><span class="n">media</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;sound:</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
         <span class="k">except</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to play </span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">. Channel may have been destroyed&quot;</span><span class="p">)</span>
             <span class="k">raise</span> <span class="n">HangupException</span><span class="p">(</span><span class="s2">&quot;Failed to play audio. Channel may have been destroyed&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
@@ -377,74 +540,185 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">[</span><span class="s2">&quot;4&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rewind</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">[</span><span class="s2">&quot;5&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pause_toggle</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">[</span><span class="s2">&quot;6&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">forward</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">[</span><span class="s2">&quot;6&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">forward</span>
+        <span class="c1"># The only way I know to wait for playback to finish is to poll until it no longer exists</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="c1"># Sleep for 1 second, so we&#39;re not polling too often</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="n">playback</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+                <span class="k">except</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">:</span>
+                    <span class="k">break</span>
+        <span class="k">except</span> <span class="n">GoBackException</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">playback</span><span class="o">.</span><span class="n">control</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;stop&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># When playback ends or is interrupted, remove the callbacks.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;4&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;5&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;6&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
 
 
     <span class="c1">### Callbacks ###</span>
 
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_on_channel_stasis_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_on_channel_stasis_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._on_channel_stasis_end&quot;</span><span class="p">)</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Caller has hung up, so we are also hanging up&quot;</span><span class="p">)</span>
-        <span class="c1"># The call has ended, clean up</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">hangup</span><span class="p">(</span><span class="n">wait</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_on_channel_dtmf_received</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI._on_channel_dtmf_received: </span><span class="si">{</span><span class="n">event</span><span class="p">[</span><span class="s1">&#39;digit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">digit</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;digit&#39;</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">digit</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">digit</span> <span class="o">==</span> <span class="s2">&quot;*&quot;</span> <span class="ow">and</span> <span class="n">config</span><span class="o">.</span><span class="n">GO_BACK_ON_STAR</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._on_channel_dtmf_received: * pressed, requesting go back&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">stop_speaking</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">digit</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">:</span>
             <span class="c1"># If there&#39;s a callback for this digit, run it</span>
             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_callbacks</span><span class="p">[</span><span class="n">digit</span><span class="p">]()</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Otherwise, put it in the queue to be received as user input</span>
             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">digit</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI._on_channel_dtmf_received: </span><span class="si">{</span><span class="n">digit</span><span class="si">}</span><span class="s2"> added to queue&quot;</span><span class="p">)</span>
 
     <span class="c1">### Private methods ###</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_check_go_back</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">GoBackException</span><span class="p">(</span><span class="s2">&quot;User pressed * to go back&quot;</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_wait_for_back_or</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">awaitable</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run a VoiceUI operation, interrupting it when * is pressed.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_go_back</span><span class="p">()</span>
+        <span class="n">operation_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">awaitable</span><span class="p">)</span>
+        <span class="n">back_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span><span class="o">.</span><span class="n">wait</span><span class="p">())</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">done</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">operation_task</span><span class="p">,</span> <span class="n">back_task</span><span class="p">),</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">asyncio</span><span class="o">.</span><span class="n">FIRST_COMPLETED</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">back_task</span> <span class="ow">in</span> <span class="n">done</span><span class="p">:</span>
+                <span class="n">operation_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+                    <span class="k">await</span> <span class="n">operation_task</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_go_back_event</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+                <span class="k">raise</span> <span class="n">GoBackException</span><span class="p">(</span><span class="s2">&quot;User pressed * to go back&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">operation_task</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">operation_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">operation_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">back_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">back_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">operation_task</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">back_task</span>
+
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_answered</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._ensure_answered&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">answered</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;VoiceUI._ensure_answered: Call was not explicitly answered. Answering now...&quot;</span><span class="p">)</span>
             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">answer</span><span class="p">()</span>
 
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_done_speaking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._done_speaking&quot;</span><span class="p">)</span>
+        <span class="c1"># Wait till every line of text has been sent to the player</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="c1"># Also wait till the last item in the queue has finished playing</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
+
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_clear_dtmf_queue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
             <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">QueueEmpty</span><span class="p">:</span>
                 <span class="k">break</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_get_dtmf</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">num_digits</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
         <span class="c1"># Clear stale data from the queue as it could have been there a long time already</span>
         <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clear_dtmf_queue</span><span class="p">()</span>
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_timer_task</span><span class="p">():</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_done_speaking</span><span class="p">()</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="n">timer_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">_timer_task</span><span class="p">())</span>
         <span class="n">digits</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-        <span class="k">if</span> <span class="n">num_digits</span><span class="p">:</span>
-            <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">num_digits</span><span class="p">:</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">digits</span> <span class="o">+=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
-                <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
-                    <span class="k">break</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">digits</span> <span class="o">+=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
-                <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
-                    <span class="k">break</span>
-        <span class="k">return</span> <span class="n">digits</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">num_digits</span><span class="p">:</span>
+                <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">num_digits</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">digits</span> <span class="o">+=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span>
+                            <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="c1"># Stop sending audio if we get a digit response</span>
+                        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
+                    <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+                        <span class="c1"># Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt</span>
+                        <span class="k">if</span> <span class="n">timer_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._get_dtmf: Timed out waiting for digit&quot;</span><span class="p">)</span>
+                            <span class="k">await</span> <span class="n">timer_task</span>
+                            <span class="k">break</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">digits</span> <span class="o">+=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_back_or</span><span class="p">(</span>
+                            <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtmf_queue</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="c1"># Stop sending audio if we get a digit response</span>
+                        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">clear_send_queue</span><span class="p">()</span>
+                    <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+                        <span class="c1"># Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt</span>
+                        <span class="k">if</span> <span class="n">timer_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._get_dtmf: Timed out waiting for digit&quot;</span><span class="p">)</span>
+                            <span class="k">await</span> <span class="n">timer_task</span>
+                            <span class="k">break</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VoiceUI._get_dtmf: Got digits: </span><span class="si">{</span><span class="n">digits</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">digits</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">timer_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">timer_task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">timer_task</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_out_media_exchanger</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._out_media_exchanger&quot;</span><span class="p">)</span>
-        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
-            <span class="n">text</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
-            <span class="n">audio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">tts</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">voice</span><span class="p">)</span>
-            <span class="c1"># Wait for the previous audio to finish playing, so that we don&#39;t get way out of sync</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">audio</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span></div>
-
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._out_media_exchanger&quot;</span><span class="p">)</span>
+            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="n">text</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+                <span class="n">audio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">tts</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">voice</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">voice</span><span class="p">)</span>
+                <span class="c1"># Wait for the previous audio to finish playing, so that we don&#39;t get way out of sync</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">drain_send_queue</span><span class="p">()</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">audio</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">text_out_queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._out_media_exchanger: Cancelled. Exiting&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;VoiceUI._out_media_exchanger: Performing final cleanup&quot;</span><span class="p">)</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audconn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts_engine</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="c1"># Clean up ARI resources</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridge</span><span class="o">.</span><span class="n">destroy</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">external_media_channel</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">aiohttp</span><span class="o">.</span><span class="n">web_exceptions</span><span class="o">.</span><span class="n">HTTPNotFound</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+            <span class="c1"># Hangup any bridged UIs</span>
+            <span class="k">for</span> <span class="n">ui</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bridged_uis</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">ui</span><span class="o">.</span><span class="n">hangup</span><span class="p">()</span>
+            <span class="c1"># Set the active flag to false</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">is_active</span> <span class="o">=</span> <span class="kc">False</span></div>
 
 </pre></div>
 
           </div>
-          
+
         </div>
       </div>
       <div class="sphinxsidebar" role="navigation" aria-label="Main">
@@ -500,15 +774,15 @@
     </div>
     <div class="footer">
       &#169;2025, Darryl Martin.
-      
+
       |
       Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
-      
+
     </div>
 
-    
 
-    
+
+
   </body>
 </html>

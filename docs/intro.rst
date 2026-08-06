@@ -14,5 +14,4 @@ I decided to clean it all up and put it into a library for my own use and for an
 It provides a server for handling incoming calls and text messages and a ``Communicator`` class for creating outgoing calls and messaging conversations.
 Any communication, both phone calls and text message conversations (and possibly other forms of communication in the future), is represented by a ``UI`` object.
 Each form of communication has its own ``UI`` subclass, ``VoiceUI`` for phone calls and ``TextUI`` for text messages.
-``UI`` objects provide methods loosely based on the [Twilio](https://www.twilio.com/docs) API, such as ``answer``, ``play``, ``say``, ``gather``, and ``hangup``.
-
+``UI`` objects provide methods loosely based on the [Twilio](https://www.twilio.com/docs) API, such as ``answer``, ``say``, ``prompt``, ``gather``, and ``hangup``.

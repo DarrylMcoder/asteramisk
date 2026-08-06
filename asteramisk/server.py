@@ -66,6 +66,7 @@ class Server(AsyncClass):
         # Create semaphores to limit the number of concurrent calls and text conversations
         self.call_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CALLS))
         self.message_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CONVERSATIONS))
+        self._message_session_lock = asyncio.Lock()
 
         # A dictionary to store the dialplan priority at which each extension is registered
         self.extension_priorities = {}
@@ -346,39 +347,41 @@ class Server(AsyncClass):
         extension = (await channel.getChannelVar(variable="EXTEN"))['value']
 
         broker = await MessageBroker.create(our_number=extension)
-        if broker.has_conversation(phone_number):
-            # Existing conversation, use the existing UI and simply pass the message to it via the broker
-            await broker.message_received(phone_number, message)
-        else:
-            # New text message conversation
-            # Seems redundant, but needs to be called after the has_conversation check
-            # Otherwise, a UI is never created and no one will consume the broker's message queue
-            await broker.message_received(phone_number, message)
-            # Check if we are overloaded
+
+        # Serialize the check-and-create transition. Otherwise two messages
+        # arriving together could create two TextUIs for the same number.
+        async with self._message_session_lock:
+            if await broker.has_conversation(phone_number):
+                if await broker.message_received(phone_number, message):
+                    return
+
+            # Check if we are overloaded before claiming a new conversation.
             if self.message_semaphore.locked():
                 logger.error("Message semaphore is full, dropping message.")
-                # Continue in the dialplan to allow another instance to pick up the message
-                # If no other instance is running, the message will be dropped
                 await channel.continueInDialplan()
                 return
 
-            else:
-                # Create a new UI and pass it to the message handler
-                async with self.message_semaphore:
-                    ui = await TextUI.create(phone_number)
-                    _, message_handler = self.handlers[extension]
-                    try:
-                        await message_handler(ui)
-                    except asyncio.CancelledError:
-                        ## CancelledError must be propagated. See note in _main_handler
-                        raise
-                    except Exception as e:
-                        logger.exception(e)
-                        # Let the user know that something went wrong
-                        await ui.say("An error has occurred while handling your message. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
-                    finally:
-                        # Always hang up at the end
-                        await ui.hangup()
+            await self.message_semaphore.acquire()
+            try:
+                ui = await TextUI.create(phone_number)
+                await broker.message_received(phone_number, message)
+            except BaseException:
+                self.message_semaphore.release()
+                raise
+
+        _, message_handler = self.handlers[extension]
+        try:
+            await message_handler(ui)
+        except asyncio.CancelledError:
+            ## CancelledError must be propagated. See note in _main_handler
+            raise
+        except Exception as e:
+            logger.exception(e)
+            # Let the user know that something went wrong
+            await ui.say("An error has occurred while handling your message. If you are the developer of this system, please check your logs for more information. If you are a user, please try again later or contact support.")
+        finally:
+            await ui.hangup()
+            self.message_semaphore.release()
 
     async def call_handler(self, ui: VoiceUI):
         """

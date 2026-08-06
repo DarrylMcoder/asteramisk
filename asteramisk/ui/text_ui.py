@@ -1,22 +1,26 @@
 import asyncio
-from contextlib import suppress
-from agents import Agent, TContext
+from contextlib import asynccontextmanager, suppress
+from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.ui import UI
 from asteramisk.config import config
+from asteramisk.exceptions import HangupException
 from asteramisk.internal.message_broker import MessageBroker
 
 import logging
 logger = logging.getLogger(__name__)
 
 class TextUI(UI):
-    async def __create__(self, recipient_number, our_callerid_number=config.SYSTEM_PHONE_NUMBER, our_callerid_name=config.SYSTEM_NAME):
-        self._broker: MessageBroker = await MessageBroker.create(our_callerid_number)
+    async def __create__(self, recipient_number, callerid_number=config.SYSTEM_PHONE_NUMBER, callerid_name=config.SYSTEM_NAME):
+        self._broker: MessageBroker = await MessageBroker.create(callerid_number)
         self._recipient_number = recipient_number
-        self._our_callerid_number = our_callerid_number
-        self._our_callerid_name = our_callerid_name
-        self.is_active = True # Technically maybe not yet True but it will be soon
+        self._our_callerid_number = callerid_number
+        self._our_callerid_name = callerid_name
+        self._incoming_queue = await self._broker.register_conversation(recipient_number)
+        self._closed_event = asyncio.Event()
+        self._closed = False
+        self.is_active = True
         await super().__create__()
 
     @property
@@ -41,19 +45,51 @@ class TextUI(UI):
     
     async def answer(self):
         """ \"Answer\" the call. Mostly for compatibility with other UIs. Connects to the broker. """
+        if self._closed:
+            raise HangupException("TextUI is closed; create a new TextUI to start another conversation")
         await self._broker.connect()
         self.is_active = True
 
-    async def hangup(self):
-        """ \"Hangup\" the call. Mostly for compatibility with other UIs. Closes the broker. """
-        await self._broker.close()
+    async def hangup(self, wait=True):
+        """Close this text session; ``wait`` is accepted for UI compatibility."""
+        if self._closed:
+            return
+        self._closed = True
         self.is_active = False
+        self._closed_event.set()
+        await self._broker.unregister_conversation(self._recipient_number, self._incoming_queue)
+
+    def _ensure_active(self):
+        if self._closed or not self.is_active:
+            raise HangupException("TextUI is closed; create a new TextUI to start another conversation")
+
+    async def _receive_message(self):
+        self._ensure_active()
+        message_task = asyncio.create_task(self._incoming_queue.get())
+        closed_task = asyncio.create_task(self._closed_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                (message_task, closed_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # If both complete together, consume a message that was already
+            # accepted before shutdown rather than dropping it.
+            if message_task in done:
+                return message_task.result()
+            raise HangupException("TextUI was hung up while waiting for a message")
+        finally:
+            for task in (message_task, closed_task):
+                if not task.done():
+                    task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
     
     async def say(self, text):
         """
         Say text to the user. Will be sent as a text message
         :param text: Text to say
         """
+        self._ensure_active()
         await self._broker.send_message(self._recipient_number, text)
 
     async def prompt(self, text):
@@ -62,7 +98,9 @@ class TextUI(UI):
         :param text: Text to prompt the user
         :return: The user's input
         """
-        return await self._broker.send_receive(self._recipient_number, text)
+        self._ensure_active()
+        await self.say(text)
+        return await self._receive_message()
 
     async def gather(self, text, num_digits):
         """
@@ -85,8 +123,13 @@ class TextUI(UI):
         :return: True if the user answers yes or False if the user answers no
         """
         message = f"{text} (yes/no)"
-        response = await self.prompt(message)
-        return 'yes' in response.lower()
+        response = (await self.prompt(message)).strip().lower()
+        if response in {"yes", "y"}:
+            return True
+        if response in {"no", "n"}:
+            return False
+        await self.say("Please answer yes or no.")
+        return await self.ask_yes_no(text)
 
     async def input_stream(self):
         """
@@ -95,98 +138,51 @@ class TextUI(UI):
         """
         try:
             while self.is_active:
-                message = await self._broker.get_incoming_message(self._recipient_number)
+                message = await self._receive_message()
                 yield message
-        except GeneratorExit:
+        except (GeneratorExit, HangupException):
             pass
 
-    async def connect_openai_agent(self, agent: Agent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = None) -> asyncio.Task:
-        """
-        Connect this UI to an OpenAI agent
-        This automates the passing of messages or audio between the UI and the OpenAI agent
-        After connecting, control of the conversation is passed to the OpenAI agent.
-        You will likely then want to use OpenAI's tool calling to manage your conversation flow
-        Example usage:
-        .. code-block:: python
-            from agents import Agent
-            from asteramisk.ui import TextUI
-            from asteramisk.server import Server
+    @asynccontextmanager
+    async def run_realtime_agent(self, agent: RealtimeAgent, talk_first: bool = True, model: str = None, voice: str = None, context: TContext = {}):
+        """Connect this text UI to an OpenAI realtime agent."""
+        if not isinstance(agent, RealtimeAgent):
+            raise ValueError("agent must be an agents.realtime.RealtimeAgent")
+        if model is None:
+            model = config.DEFAULT_REALTIME_GPT_MODEL
 
-            async def message_handler(ui: TextUI):
-                await ui.answer()
-                await ui.say("Passing control to OpenAI agent")
-                bob = Agent(
-                    name="Bob",
-                    instructions="Your agent instructions"
-                )
-                await ui.connect_openai_agent(bob, model="gpt-4o")
-                # Control of the conversation is now passed to the OpenAI agent
-                # You can use OpenAI's tool calling to manage your conversation flow
-                # You can still use the UI, but the agent is also in the conversation so it would likely be better not to play any audio
+        runner = RealtimeRunner(starting_agent=agent, config={
+            "model_settings": {
+                "model_name": model,
+                "modalities": ["text"]
+            }
+        })
 
-        :param agent: The OpenAI agent to connect to the UI, either an agents.Agent or an agents.realtime.RealtimeAgent
-        :param talk_first: If True, the agent will speak first
-        :return: A task that will run the OpenAI agent. You can await this task to wait for the conversation to end
-        """
-        async def _run_agent_task():
-            nonlocal model # We might change the model so we need to declare it nonlocal
+        async def message_loop(session):
             try:
-                if isinstance(agent, Agent):
-                    await self._run_text_agent(agent, talk_first, model)
-                elif isinstance(agent, RealtimeAgent):
-                    if model is None:
-                        # Use the cheaper mini model rather than the default GPT-4o
-                        model = config.DEFAULT_REALTIME_GPT_MODEL
-                    runner = RealtimeRunner(starting_agent=agent, config={
-                        "model_settings": {
-                            "model_name": model,
-                            "modalities": ["text"]
-                        }
-                    })
-                    async with await runner.run(context=context) as session:
-                        if talk_first:
-                            # The agent is expected to speak first.
-                            await session.send_message("New call, greet the caller.")
-                        async def message_loop():
-                            # Directly pass messages from the UI to the OpenAI session
-                            while self.is_active:
-                                logger.debug("message_loop: Waiting for message")
-                                message = await self._broker.get_incoming_message(self._recipient_number)
-                                await session.send_message(message)
-                        self._message_task = asyncio.create_task(message_loop())
-                        async for event in session:
-                            print(event.type)
-                            if event.type == "audio":
-                                pass
-                            elif event.type == "audio_interrupted":
-                                # Audio was interrupted, stop speaking and listen
-                                await self.audconn.clear_send_queue()
-                            elif event.type == "raw_model_event":
-                                print(" ", event.data.type)
-                                if event.data.type == "raw_server_event":
-                                    print("     ", event.data.data["type"])
-                                    if event.data.data["type"].count("rate") > 0:
-                                        print("         ", event)
-                            elif event.type == "error":
-                                logger.error(f"OpenAI session error: {event}")
+                while self.is_active:
+                    logger.debug("TextUI.run_realtime_agent: waiting for message")
+                    message = await self._receive_message()
+                    await session.send_message(message)
+            except HangupException:
+                return
 
-                else:
-                    raise ValueError(f"Unsupported agent type: {type(agent)}")
-            finally:
-                # Clean up
-                if hasattr(self, "_message_task") and self._message_task is not None:
-                    self._message_task.cancel()
+        async def _gen():
+            async with await runner.run(context=context) as session:
+                if talk_first:
+                    await session.send_message("New conversation, greet the user.")
+                message_task = asyncio.create_task(message_loop(session))
+                try:
+                    async for event in session:
+                        if event.type == "error":
+                            logger.error(f"OpenAI session error: {event}")
+                        yield event
+                finally:
+                    message_task.cancel()
                     with suppress(asyncio.CancelledError):
-                        await self._message_task
+                        await message_task
 
-        self._agent_task = asyncio.create_task(_run_agent_task())
-        return self._agent_task
-
-    async def disconnect_openai_agent(self):
-        if self._agent_task:
-            self._agent_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._agent_task
+        yield _gen()
 
     async def bridge(self, ui):
         """

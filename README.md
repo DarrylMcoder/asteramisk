@@ -8,10 +8,11 @@ Table of Contents
 on this project about September or October 2024. It started as an
 attempt to build a telephone interface for a ride sharing system I was
 working on. While I was at it, I periodically gave up on the ride
-sharing project and started a simpler telephone project. projects that I
-have been working on use the same core code for interaction with
-Asterisk PBX. I decided to clean it all up and put it into a library for
-my own use and for anyone else who might find it useful.
+sharing project and started a simpler telephone project. Since all of
+the projects that I have been working on use the same core code for
+interaction with Asterisk PBX, I decided to clean it all up and put it
+into a library for my own use and for anyone else who might find it
+useful.
 
 `Asteramisk` is based on, or built on top of, the
 \[panoramisk\](<https://github.com/gawel/panoramisk>) library. It
@@ -22,8 +23,8 @@ conversations (and possibly other forms of communication in the future),
 is represented by a `UI` object. Each form of communication has its own
 `UI` subclass, `VoiceUI` for phone calls and `TextUI` for text messages.
 `UI` objects provide methods loosely based on the
-\[Twilio\](<https://www.twilio.com/docs>) API, such as `answer`, `play`,
-`say`, `gather`, and `hangup`.
+\[Twilio\](<https://www.twilio.com/docs>) API, such as `answer`, `say`,
+`prompt`, `gather`, and `hangup`.
 
 # Installation
 
@@ -34,16 +35,16 @@ with [pip install asteramisk]{.title-ref}.
 # Configuration
 
 First, you need to configure Asterisk. You can find example
-configuration files in [example_configs/]{.title-ref}. You should be
-able to copy the [example_configs]{.title-ref} directory contents
-directly into [/etc/asterisk/]{.title-ref}. You need to enable the
-Asterisk ARI interface and the Asterisk AMI interface.
+configuration files in `example_configs/`. You should be able to copy
+the `example_configs` directory contents directly into `/etc/asterisk/`.
+You need to enable the Asterisk ARI interface and the Asterisk AMI
+interface.
 
 ## AMI configuration
 
 Make sure the AMI interface is enabled in Asterisk. Open the file
-[/etc/asterisk/manager.conf]{.title-ref} and verify that the following
-lines are present:
+`/etc/asterisk/manager.conf` and verify that the following lines are
+present:
 
 ``` ini
 [general]
@@ -52,8 +53,8 @@ port = 5038
 bindaddr = 0.0.0.0
 ```
 
-In [/etc/asterisk/manager.d/]{.title-ref}, create a file named
-[yourusername.conf]{.title-ref} and add the following lines:
+In `/etc/asterisk/manager.d/`, create a file named `yourusername.conf`
+and add the following lines:
 
 ``` ini
 [yourusername]
@@ -62,17 +63,16 @@ read = all
 write = all
 ```
 
-This will enable the AMI interface for the user
-[yourusername]{.title-ref} with password [yourpassword]{.title-ref}. You
-can then configure Asteramisk to use this user when connecting to
-Asterisk AMI.
+This will enable the AMI interface for the user `yourusername` with
+password `yourpassword`. You can then configure Asteramisk to use this
+user when connecting to Asterisk AMI.
 
 ## ARI configuration
 
 Make sure the ARI interface is enabled in Asterisk. This is a little
 different from the AMI interface, but not any harder. Open the file
-[/etc/asterisk/ari.conf]{.title-ref} and verify that the following lines
-are present:
+`/etc/asterisk/ari.conf` and verify that the following lines are
+present:
 
 ``` ini
 [general]
@@ -89,12 +89,11 @@ read_only=no
 password=youraripassword
 ```
 
-This will enable the ARI interface for the user
-[yourariusername]{.title-ref} with password
-[youraripassword]{.title-ref}.
+This will enable the ARI interface for the user `yourariusername` with
+password `youraripassword`.
 
 Since the Rest API depends on Asterisk\'s built-in mini-http server, you
-also need to make sure it is enabled in \`/etc/asterisk/http.conf\`:
+also need to make sure it is enabled in `/etc/asterisk/http.conf`:
 
 ``` ini
 [general]
@@ -114,11 +113,10 @@ on are disabled. You need to enable them before Asteramisk will work.
 ## Asteramisk configuration
 
 Next, you need to configure Asteramisk to connect to your Asterisk PBX.
-This is done by importing the [config]{.title-ref} module and setting
-the following variables. Some of these variables are optional, but you
-need to set the ones that are required to make Asteramisk work. See the
-[config]{.title-ref} module for a complete list of configuration
-variables.
+This is done by importing the `config` module and setting the following
+variables. Some of these variables are optional, but you need to set the
+ones that are required to make Asteramisk work. See the `config` module
+for a complete list of configuration variables.
 
 ``` python
 from asteramisk.config import config
@@ -146,6 +144,7 @@ config.ASTERISK_PSTN_GATEWAY_USER = 'yourusername' # A username that has been co
 # Configure system information (optional)
 config.SYSTEM_PHONE_NUMBER = '1234567890' # A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint
 config.SYSTEM_NAME = 'Your Company Name' # A name that will be used in outgoing calls and text messages
+config.GO_BACK_ON_STAR = True # Whether VoiceUI should treat DTMF * as a back-navigation command. Default is True
 
 # Optional configuration variables
 config.ASTERISK_SOUNDS_DIR = '/usr/share/asterisk/sounds' # The directory where Asterisk stores its sound files. You need to set this only if you have changed the default location on the Asterisk side
@@ -164,8 +163,9 @@ it. You can then register extensions with the server using the
 `register_extension` method. If your application should be accessible on
 more than one phone number, simply repeat the `register_extension` call
 for each number. Your call and text message handlers should be async
-functions that accept a `UI` object as a parameter. Each call to a
-handler will be handled by a separate coroutine.
+functions that accept a `UI` object as a parameter. Each call or text
+message is handled by a separate asyncio task so that multiple
+conversations can be handled concurrently.
 
 ``` python
 import asyncio
@@ -192,8 +192,8 @@ async def my_text_handler(ui: TextUI):
     await ui.hangup()
 
 async def main():
-    server = await Server.create(host='127.0.0.1', port=4753)
-    await server.register_extension('1234567890', call_handler=my_call_handler, text_handler=my_text_handler)
+    server = await Server.create()
+    await server.register_extension('1234567890', call_handler=my_call_handler, message_handler=my_text_handler)
     await server.serve_forever()
 
 if __name__ == '__main__':
@@ -202,17 +202,47 @@ if __name__ == '__main__':
 
 Inside your call and text message handlers, you can use the `UI` object
 to control the call or text conversation. Use the `answer` method to
-answer the call. Use the `say` method to say something to the caller.
-Use the `gather` method to gather digits from the caller. Use the
-`prompt` method to prompt the caller for text input. Use the `menu`
-method to present a menu to the caller and call a specified callback for
-the user\'s choice. Use the `select` method to present a menu to the
-caller and get the user\'s choice. Use the `hangup` method to hang up
-the call.
+perform any setup needed before communication. Use the `say` method to
+speak or send a message to the other party. Use the `gather` method to
+gather digits from the caller. Use the `prompt` method to prompt the
+caller for text input. Use the `menu` method to present a menu to the
+caller and call a specified callback for the user\'s choice. Use the
+`select` method to present a menu to the caller and get the user\'s
+choice. Use the `hangup` method to end the call or text session.
 
-The `UI` object also has a `connect_openai_agent` method that allows you
-to connect your call or text conversation to an OpenAI agent. After
-calling this method, the conversation is controlled by the OpenAI agent.
-You can then use tool calling and other features of the OpenAI agent to
-control the conversation. Read more about OpenAI agents in the \[OpenAI
+Text sessions have an explicit lifecycle. Once `TextUI.hangup()` is
+called, that UI is closed and cannot send or receive further messages. A
+later incoming message starts a new handler with a new `TextUI`. For
+outgoing conversations, call `Communicator.make_text()` again to create
+a new session.
+
+## OpenAI agents
+
+The shared `UI.run_agent()` method connects either a `VoiceUI` or
+`TextUI` to a non-realtime OpenAI `Agent`:
+
+``` python
+from agents import Agent
+
+agent = Agent(name="Assistant", instructions="Be helpful and concise.")
+async with ui.run_agent(agent) as session:
+    async for event in session:
+        pass
+```
+
+Both UIs also provide `run_realtime_agent()` for an
+`agents.realtime.RealtimeAgent`. VoiceUI sends audio; TextUI sends
+messages using text-only modalities:
+
+``` python
+from agents.realtime import RealtimeAgent
+
+agent = RealtimeAgent(name="Assistant", instructions="Be helpful.")
+async with ui.run_realtime_agent(agent) as session:
+    async for event in session:
+        pass
+```
+
+Do not use `await` before either context-manager method. Read more about
+OpenAI agents in the \[OpenAI
 documentation\](<https://platform.openai.com/docs/guides/agents>).

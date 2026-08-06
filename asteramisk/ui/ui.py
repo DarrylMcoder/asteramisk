@@ -108,9 +108,10 @@ class UI(AsyncClass):
         """
         Get a stream of input from the user
         Example usage:
-        ... code-block:: python
-        async for user_input in ui.input_stream():
-            print(user_input)
+        .. code-block:: python
+
+            async for user_input in ui.input_stream():
+                print(user_input)
         """
         raise NotImplementedError
 
@@ -213,13 +214,10 @@ class UI(AsyncClass):
         Returns the selected option
         You can use any type of object as an option, but of course it will be nicer if they have sensible string representations
         Options are automatically converted to strings and are presented as follows:
-        For voice UIs:
-            For "option_1", press 1.
-            For "option_2", press 2.
-        For text UIs:
-            1. "option_1"
-            2. "option_2"
-            Reply with the number of the option you want.
+
+        * For voice UIs, the user is prompted to press a number for an option.
+        * For text UIs, the options are listed with numbers and the user replies with a number.
+
         :param text: Text to prompt the user.
         :param options: List of options, like [item_1, item_2, ...]
         :param voice_options: Same as options, but used only in voice UIs
@@ -280,27 +278,25 @@ class UI(AsyncClass):
     @asynccontextmanager
     async def run_agent(self, agent, talk_first: bool = True, model: str = None, context: TContext = {}):
         """
-        Connects the voice UI to an OpenAI agent (not realtime)
-        For better performing, but more expensive realtime agents, use the run_realtime_agent method instead
+        Connects the UI to an OpenAI agent (not realtime)
+        For better-performing, but more expensive realtime agents, use the run_realtime_agent method instead
         :param agent: The OpenAI agents.Agent to connect to
         :param talk_first: Whether or not to cause the agent to speak first. If False, the agent will wait for the caller to speak first
         :param model: The OpenAI model to use
         :param context: The context to pass to the agent. Will be passed to any tools used by the agent
         :return: An async context manager that returns an async generator
         Use this method almost like you would use the OpenAI realtime agents API
+
         .. code-block:: python
 
-        from asteramisk.ui import VoiceUI
-        from agents import Agent
+            from asteramisk.ui import VoiceUI
+            from agents import Agent
 
-        async def call_handler(ui: VoiceUI):
-            await ui.answer()
-            async with ui.run_agent(Agent(...)) as session:
-                async for event in session:
-                    # Do something with the event
-                    # These events are simply the ui inputs
-                    # This is only to keep the API consistent with the realtime implementation
-                    # which actually returns events that might be useful.
+            async def call_handler(ui: VoiceUI):
+                await ui.answer()
+                async with ui.run_agent(Agent(...)) as session:
+                    async for event in session:
+                        pass
         """
 
         if not isinstance(agent, Agent):
