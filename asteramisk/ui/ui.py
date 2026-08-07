@@ -19,6 +19,12 @@ class UI(AsyncClass):
         VOICE = "voice"
         TEXT = "text"
 
+    async def __create__(self):
+        # DTMF back navigation is meaningful only while a menu callback (or a
+        # submenu called by that callback) is active.
+        self._menu_callback_depth = 0
+        await super().__create__()
+
     async def __aenter__(self):
         await self.answer()
         return self
@@ -165,10 +171,14 @@ class UI(AsyncClass):
             callback = local_callbacks[selected]
             args = ()
         try:
-            result = await callback(*args)
-            if self.ui_type == self.UIType.VOICE:
-                await self.done_speaking()
-            return result
+            self._menu_callback_depth += 1
+            try:
+                result = await callback(*args)
+                if self.ui_type == self.UIType.VOICE:
+                    await self.done_speaking()
+                return result
+            finally:
+                self._menu_callback_depth -= 1
         except GoBackException:
             # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
             return await self.menu(text, callbacks, voice_callbacks, text_callbacks)

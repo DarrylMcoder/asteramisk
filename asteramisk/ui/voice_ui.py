@@ -490,6 +490,9 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
         digit = event['digit']
         if digit == "*" and config.GO_BACK_ON_STAR:
+            if self._menu_callback_depth == 0:
+                logger.debug("VoiceUI._on_channel_dtmf_received: * pressed outside a menu callback, ignoring")
+                return
             logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, requesting go back")
             async with self._go_back_lock:
                 self._go_back_cleanup_done.clear()
