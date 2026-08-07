@@ -165,7 +165,10 @@ class UI(AsyncClass):
             callback = local_callbacks[selected]
             args = ()
         try:
-            return await callback(*args)
+            result = await callback(*args)
+            if self.ui_type == self.UIType.VOICE:
+                await self.done_speaking()
+            return result
         except GoBackException:
             # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
             return await self.menu(text, callbacks, voice_callbacks, text_callbacks)

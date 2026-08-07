@@ -60,6 +60,9 @@ class VoiceUI(UI):
         self.dtmf_queue = asyncio.Queue(10)
         self.dtmf_callbacks = {}
         self._go_back_event = asyncio.Event()
+        self._go_back_cleanup_done = asyncio.Event()
+        self._go_back_cleanup_done.set()
+        self._go_back_lock = asyncio.Lock()
         self.text_out_queue = asyncio.Queue(1)
         self.out_media_task = asyncio.create_task(self._out_media_exchanger())
         self.to_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
@@ -134,7 +137,7 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI.say: {text}")
         # Ensure the call is answered, since we can't hear anything otherwise
         await self._ensure_answered()
-        self._check_go_back()
+        await self._check_go_back()
 
         if not self.is_active:
             raise HangupException("UI is inactive, cannot say(). User probably hung up")
@@ -488,8 +491,15 @@ class VoiceUI(UI):
         digit = event['digit']
         if digit == "*" and config.GO_BACK_ON_STAR:
             logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, requesting go back")
-            self._go_back_event.set()
-            await self.stop_speaking()
+            async with self._go_back_lock:
+                self._go_back_cleanup_done.clear()
+                self._go_back_event.set()
+                try:
+                    await self.stop_speaking()
+                finally:
+                    # Let the interrupted operation resume only after old audio
+                    # has been cleared, so a replacement prompt cannot be lost.
+                    self._go_back_cleanup_done.set()
         elif digit in self.dtmf_callbacks:
             # If there's a callback for this digit, run it
             await self.dtmf_callbacks[digit]()
@@ -500,14 +510,15 @@ class VoiceUI(UI):
 
     ### Private methods ###
 
-    def _check_go_back(self):
+    async def _check_go_back(self):
         if self._go_back_event.is_set():
+            await self._go_back_cleanup_done.wait()
             self._go_back_event.clear()
             raise GoBackException("User pressed * to go back")
 
     async def _wait_for_back_or(self, awaitable):
         """Run a VoiceUI operation, interrupting it when * is pressed."""
-        self._check_go_back()
+        await self._check_go_back()
         operation_task = asyncio.create_task(awaitable)
         back_task = asyncio.create_task(self._go_back_event.wait())
         try:
@@ -519,8 +530,7 @@ class VoiceUI(UI):
                 operation_task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await operation_task
-                self._go_back_event.clear()
-                raise GoBackException("User pressed * to go back")
+                await self._check_go_back()
             return operation_task.result()
         finally:
             if not operation_task.done():
