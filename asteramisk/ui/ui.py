@@ -9,6 +9,12 @@ from asteramisk.internal.async_class import AsyncClass
 import logging
 logger = logging.getLogger(__name__)
 
+
+class _MenuNavigationState:
+    def __init__(self):
+        self.callback_depth = 0
+
+
 class UI(AsyncClass):
     """
     Base class for all user interfaces
@@ -22,7 +28,9 @@ class UI(AsyncClass):
     async def __create__(self):
         # DTMF back navigation is meaningful only while a menu callback (or a
         # submenu called by that callback) is active.
-        self._menu_callback_depth = 0
+        # Keep this in a mutable object so UI wrappers that forward attributes
+        # share the same state instead of shadowing an integer locally.
+        self._menu_navigation_state = _MenuNavigationState()
         await super().__create__()
 
     async def __aenter__(self):
@@ -171,14 +179,14 @@ class UI(AsyncClass):
             callback = local_callbacks[selected]
             args = ()
         try:
-            self._menu_callback_depth += 1
+            self._menu_navigation_state.callback_depth += 1
             try:
                 result = await callback(*args)
                 if self.ui_type == self.UIType.VOICE:
                     await self.done_speaking()
                 return result
             finally:
-                self._menu_callback_depth -= 1
+                self._menu_navigation_state.callback_depth -= 1
         except GoBackException:
             # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
             return await self.menu(text, callbacks, voice_callbacks, text_callbacks)

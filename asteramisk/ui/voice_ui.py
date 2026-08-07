@@ -490,7 +490,7 @@ class VoiceUI(UI):
         logger.debug(f"VoiceUI._on_channel_dtmf_received: {event['digit']}")
         digit = event['digit']
         if digit == "*" and config.GO_BACK_ON_STAR:
-            if self._menu_callback_depth == 0:
+            if self._menu_navigation_state.callback_depth == 0:
                 logger.debug("VoiceUI._on_channel_dtmf_received: * pressed outside a menu callback, ignoring")
                 return
             logger.debug("VoiceUI._on_channel_dtmf_received: * pressed, requesting go back")
@@ -581,7 +581,7 @@ class VoiceUI(UI):
                             asyncio.wait_for(self.dtmf_queue.get(), timeout=timeout)
                         )
                         # Stop sending audio if we get a digit response
-                        await self.audconn.clear_send_queue()
+                        await self.stop_speaking()
                     except asyncio.TimeoutError:
                         # Only break out of the loop if the timeout has been exceeded and we are already done playing the audio prompt
                         if timer_task.done():
