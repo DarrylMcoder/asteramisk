@@ -157,20 +157,26 @@ class UI(AsyncClass):
         else:
             raise ValueError("No callbacks provided")
 
-        # Prompt the user to select an option
-        # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
-        if self.ui_type == self.UIType.VOICE:
-            num_digits = max([len(str(i)) for i in local_callbacks.keys()])
-            selected = await self.gather(text, num_digits)
-        elif self.ui_type == self.UIType.TEXT:
-            selected = await self.prompt(text)
-        selected = str(selected).strip()
-        if selected not in local_callbacks:
-            if selected:
-                error_text = f"{selected} is not a valid option, please try again."
-            else:
-                error_text = "You did not select an option, please try again."
-            return await self.menu(f"{error_text if error_text not in text else ''}{text}", callbacks, voice_callbacks, text_callbacks)
+        # Loop until a valid option is selected
+        retry_reason = ""
+        while True:
+            say_text = f"{retry_reason}{text}"
+            # Prompt the user to select an option
+            # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
+            if self.ui_type == self.UIType.VOICE:
+                num_digits = max([len(str(i)) for i in local_callbacks.keys()])
+                selected = await self.gather(say_text, num_digits)
+            elif self.ui_type == self.UIType.TEXT:
+                selected = await self.prompt(say_text)
+            selected = str(selected).strip()
+            if selected not in local_callbacks:
+                if selected:
+                    retry_reason = f"{selected} is not a valid option, please try again."
+                else:
+                    retry_reason = "You did not select an option, please try again."
+                continue
+            # Break the loop if a valid option is selected
+            break
 
         # Allow for callbacks with arguments
         if isinstance(local_callbacks[selected], tuple):
@@ -213,20 +219,27 @@ class UI(AsyncClass):
                 raise ValueError("No options provided for current UI type")
         else:
             raise ValueError("No options provided")
-        # Prompt the user to select an option
-        # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
-        if self.ui_type == self.UIType.VOICE:
-            num_digits = max([len(str(i)) for i in local_options.keys()])
-            selected = await self.gather(text, num_digits)
-        elif self.ui_type == self.UIType.TEXT:
-            selected = await self.prompt(text)
-        selected = str(selected).strip()
-        if selected not in local_options:
-            if selected:
-                error_text = f"{selected} is not a valid option, please try again. "
-            else:
-                error_text = "You did not select an option, please try again. "
-            return await self.select(f"{error_text if error_text not in text else ''}{text}", options, voice_options, text_options)
+
+        # Loop until a valid option is selected
+        retry_reason = ""
+        while True:
+            say_text = f"{retry_reason}{text}"
+            # Prompt the user to select an option
+            # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
+            if self.ui_type == self.UIType.VOICE:
+                num_digits = max([len(str(i)) for i in local_options.keys()])
+                selected = await self.gather(say_text, num_digits)
+            elif self.ui_type == self.UIType.TEXT:
+                selected = await self.prompt(say_text)
+            selected = str(selected).strip()
+            if selected not in local_options:
+                if selected:
+                    retry_reason = f"{selected} is not a valid option, please try again. "
+                else:
+                    retry_reason = "You did not select an option, please try again. "
+                continue
+            # Break the loop if a valid option is selected
+            break
         return local_options[selected]
 
     async def choose(self, text, options: list[Any] = None, voice_options: list[Any] = None, text_options: list[Any] = None):
