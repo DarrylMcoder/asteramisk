@@ -236,13 +236,18 @@ class Server(AsyncClass):
         Close the server. Is an async method
         """
         await self.unregister_all_extensions()
-        await self.audiosocket.close()
-        await self.ari.close()
-        # Cancel all tasks; hangup all calls
-        for task in self.handler_tasks.values():
+
+        # Cancel all tasks and let them clean up their ARI resources before
+        # closing the shared ARI connection.
+        tasks = list(self.handler_tasks.values())
+        for task in tasks:
             task.cancel()
+        for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+
+        await self.audiosocket.close()
+        await self.ari.close()
 
     async def _ari_stasis_start_handler(self, objs, event):
         logger.debug(f"Stasis start for channel {objs['channel'].json['name']}")
