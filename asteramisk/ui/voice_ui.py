@@ -470,7 +470,7 @@ class VoiceUI(UI):
                     break
         except GoBackException:
             with suppress(aiohttp.web_exceptions.HTTPNotFound):
-                await playback.control(operation="stop")
+                await playback.stop()
             raise
 
         finally:
