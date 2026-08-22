@@ -1,5 +1,4 @@
 import os
-import uuid
 import aioari
 import asyncio
 import panoramisk.fast_agi
@@ -43,7 +42,15 @@ class Server(AsyncClass):
         if __name__ == "__main__":
             asyncio.run(main())
     """
+    # ARI's event WebSocket and Stasis application are process-wide resources.
+    # Only one Server may own them at a time; other components (for example
+    # Communicator/UI instances) can still share AriClient directly.
+    _active = False
+
     async def __create__(self, stasis_app=None):
+        if Server._active:
+            raise RuntimeError("Only one Server instance may be active per process")
+
         # Raise an exception if required variables are not configured
         if not config.ASTERISK_HOST:
             raise_not_configured("ASTERISK_HOST")
@@ -63,6 +70,21 @@ class Server(AsyncClass):
         if not config.ASTERISK_ARI_PASS:
             raise_not_configured("ASTERISK_ARI_PASS")
 
+        # Set this before the first await so concurrent creations cannot race.
+        Server._active = True
+        try:
+            await self._initialize(stasis_app)
+        except BaseException:
+            Server._active = False
+            if hasattr(self, "audiosocket"):
+                with suppress(BaseException):
+                    await self.audiosocket.close()
+            with suppress(BaseException):
+                await AriClient.close_if_unused()
+            raise
+
+    async def _initialize(self, stasis_app):
+
         # Create semaphores to limit the number of concurrent calls and text conversations
         self.call_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CALLS))
         self.message_semaphore = asyncio.Semaphore(int(config.MAX_CONCURRENT_CONVERSATIONS))
@@ -79,13 +101,14 @@ class Server(AsyncClass):
                 ari_pass=config.ASTERISK_ARI_PASS
             )
         self.handlers = {}
-        self.stasis_app = stasis_app
-        if not self.stasis_app:
-            # Unique ID for Stasis application so that there are no conflicts with multiple instances
-            self.stasis_app = uuid.uuid4().hex
+        self.stasis_app = AriClient.configure_application(stasis_app)
+        self._ari_acquired = False
+        self._closed = False
         
         # Create a dictionary of {channel_id: asyncio.Task} to store the handler tasks for each channel
         self.handler_tasks = {}
+        self.ari.on_channel_event("StasisStart", self._ari_stasis_start_handler)
+        self.ari.on_channel_event("StasisEnd", self._ari_stasis_end_handler)
 
     async def register_extension(self, extension, call_handler=None, message_handler=None):
         """
@@ -219,15 +242,15 @@ class Server(AsyncClass):
         # Error if not running as root
         if not os.geteuid() == 0:
             raise Exception("Must be run as root")
-        self.ari.on_channel_event("StasisStart", self._ari_stasis_start_handler)
-        self.ari.on_channel_event("StasisEnd", self._ari_stasis_end_handler)
         try:
-            await self.ari.run(
-                apps=[
-                    self.stasis_app,
-                    "asteramisk"
-                ]
+            self.ari = await AriClient.acquire(
+                ari_host=config.ASTERISK_HOST,
+                ari_port=config.ASTERISK_ARI_PORT,
+                ari_user=config.ASTERISK_ARI_USER,
+                ari_pass=config.ASTERISK_ARI_PASS,
             )
+            self._ari_acquired = True
+            await AriClient.wait()
         finally:
             await self.close()
 
@@ -235,41 +258,56 @@ class Server(AsyncClass):
         """
         Close the server. Is an async method
         """
-        await self.unregister_all_extensions()
+        if self._closed:
+            Server._active = False
+            return
+        self._closed = True
 
-        # Cancel all tasks and let them clean up their ARI resources before
-        # closing the shared ARI connection.
-        tasks = list(self.handler_tasks.values())
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
-            with suppress(asyncio.CancelledError):
-                await task
-
-        await self.audiosocket.close()
-        await self.ari.close()
+        try:
+            await self.unregister_all_extensions()
+        finally:
+            try:
+                # Cancel all tasks and let them clean up their ARI resources
+                # before closing the shared ARI connection.
+                tasks = list(self.handler_tasks.values())
+                for task in tasks:
+                    task.cancel()
+                for task in tasks:
+                    with suppress(asyncio.CancelledError):
+                        await task
+            finally:
+                try:
+                    await self.audiosocket.close()
+                finally:
+                    try:
+                        if self._ari_acquired:
+                            self._ari_acquired = False
+                            await AriClient.release()
+                        else:
+                            await AriClient.close_if_unused()
+                    finally:
+                        Server._active = False
 
     async def _ari_stasis_start_handler(self, objs, event):
         logger.debug(f"Stasis start for channel {objs['channel'].json['name']}")
-        if event['application'] == self.stasis_app:
-            task = asyncio.create_task(self._main_handler(objs, event))
-            self.handler_tasks[objs['channel'].id] = task
-        else:
-            logger.debug(f"Application {event['application']} has no handler. Probably ok if the code that created it is also controlling it")
+        args = event.get('args', [])
+        if event['application'] != self.stasis_app or not args or args[0] not in {'call', 'text'}:
+            logger.debug("Ignoring Stasis start for an internally managed channel")
+            return
+        task = asyncio.create_task(self._main_handler(objs, event))
+        self.handler_tasks[objs['channel'].id] = task
 
     async def _ari_stasis_end_handler(self, channel: aioari.model.Channel, event):
         logger.debug(f"Stasis end for channel {channel.json['name']}")
-        if event['application'] == self.stasis_app:
-            if channel.id in self.handler_tasks:
-                logger.debug(f"Canceling task for channel {channel.id}")
-                self.handler_tasks[channel.id].cancel()
-                logger.debug(f"Waiting for task for channel {channel.id} to finish")
-                with suppress(asyncio.CancelledError):
-                    await self.handler_tasks[channel.id]
-                logger.debug(f"Task for channel {channel.id} finished, removing from handler_tasks")
-                del self.handler_tasks[channel.id]
-            else:
-                logger.warning(f"Channel {channel.id} hung up but no task found for it.")
+        if event['application'] != self.stasis_app or channel.id not in self.handler_tasks:
+            return
+        logger.debug(f"Canceling task for channel {channel.id}")
+        self.handler_tasks[channel.id].cancel()
+        logger.debug(f"Waiting for task for channel {channel.id} to finish")
+        with suppress(asyncio.CancelledError):
+            await self.handler_tasks[channel.id]
+        logger.debug(f"Task for channel {channel.id} finished, removing from handler_tasks")
+        del self.handler_tasks[channel.id]
 
     async def _main_handler(self, objs, event):
         """

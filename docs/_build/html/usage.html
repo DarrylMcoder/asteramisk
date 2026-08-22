@@ -76,6 +76,11 @@ Each call or text message is handled by a separate asyncio task so that multiple
     <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">Server</span></code>, <code class="docutils literal notranslate"><span class="pre">Communicator</span></code>, and <code class="docutils literal notranslate"><span class="pre">VoiceUI</span></code> share one process-local ARI
+application and event connection. A standalone <code class="docutils literal notranslate"><span class="pre">Communicator</span></code> starts that
+connection automatically. If you pass a custom <code class="docutils literal notranslate"><span class="pre">stasis_app</span></code> to
+<code class="docutils literal notranslate"><span class="pre">Server.create()</span></code>, create the server before creating a <code class="docutils literal notranslate"><span class="pre">Communicator</span></code>; an
+active shared ARI application cannot be renamed.</p>
 <p>Inside your call and text message handlers, you can use the <code class="docutils literal notranslate"><span class="pre">UI</span></code> object to control the call or text conversation.
 Use the <code class="docutils literal notranslate"><span class="pre">answer</span></code> method to perform any setup needed before communication.
 Use the <code class="docutils literal notranslate"><span class="pre">say</span></code> method to speak or send a message to the other party.

@@ -200,6 +200,12 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
+`Server`, `Communicator`, and `VoiceUI` share one process-local ARI
+application and event connection. A standalone `Communicator` starts that
+connection automatically. If you pass a custom `stasis_app` to
+`Server.create()`, create the server before creating a `Communicator`; an
+active shared ARI application cannot be renamed.
+
 Inside your call and text message handlers, you can use the `UI` object
 to control the call or text conversation. Use the `answer` method to
 perform any setup needed before communication. Use the `say` method to

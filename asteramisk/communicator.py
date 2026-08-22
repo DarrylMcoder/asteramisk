@@ -48,21 +48,32 @@ class Communicator(AsyncClass):
         self._callerid_number = callerid_number
         self._callerid_name = callerid_name
 
-        self._ari_client = await AriClient.create()
-        self._manager = Manager(
-            host=config.ASTERISK_HOST,
-            port=config.ASTERISK_AMI_PORT,
-            username=config.ASTERISK_AMI_USER,
-            secret=config.ASTERISK_AMI_PASS,
-            ssl=False
-        )
-        await self._manager.connect()
+        self._closed = False
+        self._ari_client = await AriClient.acquire()
+        try:
+            self._manager = Manager(
+                host=config.ASTERISK_HOST,
+                port=config.ASTERISK_AMI_PORT,
+                username=config.ASTERISK_AMI_USER,
+                secret=config.ASTERISK_AMI_PASS,
+                ssl=False
+            )
+            await self._manager.connect()
+        except BaseException:
+            await AriClient.release()
+            raise
 
     async def connect(self):
         await self._manager.connect()
 
     async def close(self):
-        self._manager.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._manager.close()
+        finally:
+            await AriClient.release()
 
     async def __aenter__(self):
         return self
@@ -117,7 +128,7 @@ class Communicator(AsyncClass):
 
         channel = await self._ari_client.channels.originate(
             endpoint=channel,
-            app="asteramisk",
+            app=AriClient.application_name(),
             callerId=f"{callerid_name} <{callerid_number}>",
             timeout=timeout or config.OUTBOUND_CALL_TIMEOUT
         )
@@ -144,11 +155,6 @@ class Communicator(AsyncClass):
                 raise asteramisk.exceptions.CallFailedException("Call failed. Reached timeout waiting for channel to be answered.")
             
             logger.debug(f"Dialled out to {recipient_number} on channel {channel.json['name']} successfully")
-
-            try:
-                await self._ari_client.applications.get(applicationName="asteramisk")
-            except aiohttp.web_exceptions.HTTPNotFound:
-                raise asteramisk.exceptions.AsteramiskException("The default `asteramisk` Stasis application was not found. This should not happen as it is created on server startup.")
 
             ui = await asteramisk.ui.VoiceUI.create(channel)
             # I know this seems strange, but audio simply won't play via audio socket until we play a sound file like this

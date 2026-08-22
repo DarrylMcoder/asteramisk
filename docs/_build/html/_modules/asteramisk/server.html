@@ -16,26 +16,25 @@
     <script src="../../_static/copybutton.js?v=f281be69"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-
+   
   <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
 
-
-
-
+  
+  
 
   </head><body>
-
+  
 
     <div class="document">
       <div class="documentwrapper">
         <div class="bodywrapper">
-
+          
 
           <div class="body" role="main">
-
+            
   <h1>Source code for asteramisk.server</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">aioari</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">panoramisk.fast_agi</span>
@@ -120,13 +119,14 @@
                 <span class="n">ari_pass</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PASS</span>
             <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">stasis_app</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
-            <span class="c1"># Unique ID for Stasis application so that there are no conflicts with multiple instances</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span>
-
+        <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="o">=</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">configure_application</span><span class="p">(</span><span class="n">stasis_app</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ari_acquired</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span> <span class="o">=</span> <span class="kc">False</span>
+        
         <span class="c1"># Create a dictionary of {channel_id: asyncio.Task} to store the handler tasks for each channel</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisStart&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_start_handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisEnd&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_end_handler</span><span class="p">)</span>
 
 <div class="viewcode-block" id="Server.register_extension">
 <a class="viewcode-back" href="../../api.html#asteramisk.server.Server.register_extension">[docs]</a>
@@ -271,15 +271,15 @@
         <span class="c1"># Error if not running as root</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">geteuid</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Must be run as root&quot;</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisStart&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_start_handler</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">on_channel_event</span><span class="p">(</span><span class="s2">&quot;StasisEnd&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_stasis_end_handler</span><span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-                <span class="n">apps</span><span class="o">=</span><span class="p">[</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">,</span>
-                    <span class="s2">&quot;asteramisk&quot;</span>
-                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ari</span> <span class="o">=</span> <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span>
+                <span class="n">ari_host</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_HOST</span><span class="p">,</span>
+                <span class="n">ari_port</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PORT</span><span class="p">,</span>
+                <span class="n">ari_user</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_USER</span><span class="p">,</span>
+                <span class="n">ari_pass</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ASTERISK_ARI_PASS</span><span class="p">,</span>
             <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ari_acquired</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
         <span class="k">finally</span><span class="p">:</span>
             <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
 
@@ -290,37 +290,53 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Close the server. Is an async method</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">unregister_all_extensions</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">ari</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="c1"># Cancel all tasks; hangup all calls</span>
-        <span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
-            <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                <span class="k">await</span> <span class="n">task</span></div>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closed</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">unregister_all_extensions</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># Cancel all tasks and let them clean up their ARI resources</span>
+                <span class="c1"># before closing the shared ARI connection.</span>
+                <span class="n">tasks</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+                <span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">:</span>
+                    <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">:</span>
+                    <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                        <span class="k">await</span> <span class="n">task</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">audiosocket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ari_acquired</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_ari_acquired</span> <span class="o">=</span> <span class="kc">False</span>
+                        <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">await</span> <span class="n">AriClient</span><span class="o">.</span><span class="n">close_if_unused</span><span class="p">()</span></div>
 
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ari_stasis_start_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stasis start for channel </span><span class="si">{</span><span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
-            <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_main_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">))</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="n">task</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Application </span><span class="si">{</span><span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> has no handler. Probably ok if the code that created it is also controlling it&quot;</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;args&#39;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">args</span> <span class="ow">or</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;call&#39;</span><span class="p">,</span> <span class="s1">&#39;text&#39;</span><span class="p">}:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Ignoring Stasis start for an internally managed channel&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_main_handler</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">objs</span><span class="p">[</span><span class="s1">&#39;channel&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="n">task</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_ari_stasis_end_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">aioari</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Channel</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stasis end for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">channel</span><span class="o">.</span><span class="n">id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Canceling task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Waiting for task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> to finish&quot;</span><span class="p">)</span>
-                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> finished, removing from handler_tasks&quot;</span><span class="p">)</span>
-                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> hung up but no task found for it.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;application&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stasis_app</span> <span class="ow">or</span> <span class="n">channel</span><span class="o">.</span><span class="n">id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Canceling task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Waiting for task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> to finish&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Task for channel </span><span class="si">{</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> finished, removing from handler_tasks&quot;</span><span class="p">)</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">handler_tasks</span><span class="p">[</span><span class="n">channel</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_main_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objs</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -464,7 +480,7 @@
 </pre></div>
 
           </div>
-
+          
         </div>
       </div>
       <div class="sphinxsidebar" role="navigation" aria-label="Main">
@@ -520,15 +536,15 @@
     </div>
     <div class="footer">
       &#169;2025, Darryl Martin.
-
+      
       |
       Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
-
+      
     </div>
 
+    
 
-
-
+    
   </body>
 </html>

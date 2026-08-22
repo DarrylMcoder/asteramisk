@@ -36,39 +36,46 @@ class VoiceUI(UI):
         self.voice = voice if voice else config.SYSTEM_VOICE
         self.answered = False
         self.is_active = True
-        self.ari: aioari.Client = await AriClient.create()
-        audiosocket = await AudiosocketAsync.create()
-        stream_id = str(uuid.uuid4())
-        self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
-            external_host=f"{config.ASTERAMISK_HOST}:{audiosocket.port}", # Use the configured host and the possibly dynamic port in case no port was specified in the config
-            encapsulation="audiosocket",
-            app="asteramisk",
-            transport="tcp",
-            format="slin",
-            data=stream_id)
+        self._ari_acquired = False
+        self.ari: aioari.Client = await AriClient.acquire()
+        self._ari_acquired = True
+        try:
+            audiosocket = await AudiosocketAsync.create()
+            stream_id = str(uuid.uuid4())
+            self.external_media_channel: aioari.model.Channel = await self.ari.channels.externalMedia(
+                external_host=f"{config.ASTERAMISK_HOST}:{audiosocket.port}", # Use the configured host and the possibly dynamic port in case no port was specified in the config
+                encapsulation="audiosocket",
+                app=AriClient.application_name(),
+                transport="tcp",
+                format="slin",
+                data=stream_id)
 
-        self._bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
-        self._bridged_uis = []
+            self._bridge: aioari.model.Bridge = await self.ari.bridges.create(type="mixing")
+            self._bridged_uis = []
 
-        await self._bridge.addChannel(channel=self.external_media_channel.id)
-        await self._bridge.addChannel(channel=self.channel.id)
-        self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
-        self.channel.on_event("StasisEnd", lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
-        self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
-        self.tts_engine: TTSEngine = await TTSEngine.create()
-        self.transcribe_engine: TranscribeEngine = await TranscribeEngine.create()
-        self.dtmf_queue = asyncio.Queue(10)
-        self.dtmf_callbacks = {}
-        self._go_back_event = asyncio.Event()
-        self._go_back_cleanup_done = asyncio.Event()
-        self._go_back_cleanup_done.set()
-        self._go_back_lock = asyncio.Lock()
-        self.text_out_queue = asyncio.Queue(1)
-        self.out_media_task = asyncio.create_task(self._out_media_exchanger())
-        self.to_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
-        self.from_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
+            await self._bridge.addChannel(channel=self.external_media_channel.id)
+            await self._bridge.addChannel(channel=self.channel.id)
+            self.audconn: AudioSocketConnectionAsync = await audiosocket.accept(stream_id)
+            self.channel.on_event("StasisEnd", lambda *args: asyncio.create_task(self._on_channel_stasis_end(*args)))
+            self.channel.on_event('ChannelDtmfReceived', lambda *args: asyncio.create_task(self._on_channel_dtmf_received(*args)))
+            self.tts_engine: TTSEngine = await TTSEngine.create()
+            self.transcribe_engine: TranscribeEngine = await TranscribeEngine.create()
+            self.dtmf_queue = asyncio.Queue(10)
+            self.dtmf_callbacks = {}
+            self._go_back_event = asyncio.Event()
+            self._go_back_cleanup_done = asyncio.Event()
+            self._go_back_cleanup_done.set()
+            self._go_back_lock = asyncio.Lock()
+            self.text_out_queue = asyncio.Queue(1)
+            self.out_media_task = asyncio.create_task(self._out_media_exchanger())
+            self.to_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
+            self.from_asterisk_resampler = samplerate.Resampler('sinc_best', 1)
 
-        await super().__create__()
+            await super().__create__()
+        except BaseException:
+            self._ari_acquired = False
+            await AriClient.release()
+            raise
 
     @property
     def ui_type(self):
@@ -626,18 +633,23 @@ class VoiceUI(UI):
             logger.debug("VoiceUI._out_media_exchanger: Cancelled. Exiting")
             raise
         finally:
-            logger.debug("VoiceUI._out_media_exchanger: Performing final cleanup")
-            await self.audconn.close()
-            await self.tts_engine.close()
-            # Clean up ARI resources
-            with suppress(aiohttp.web_exceptions.HTTPNotFound):
-                await self._bridge.destroy()
-            with suppress(aiohttp.web_exceptions.HTTPNotFound):
-                await self.external_media_channel.hangup()
-            with suppress(aiohttp.web_exceptions.HTTPNotFound):
-                await self.channel.hangup()
-            # Hangup any bridged UIs
-            for ui in self._bridged_uis:
-                await ui.hangup()
-            # Set the active flag to false
-            self.is_active = False
+            try:
+                logger.debug("VoiceUI._out_media_exchanger: Performing final cleanup")
+                await self.audconn.close()
+                await self.tts_engine.close()
+                # Clean up ARI resources
+                with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                    await self._bridge.destroy()
+                with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                    await self.external_media_channel.hangup()
+                with suppress(aiohttp.web_exceptions.HTTPNotFound):
+                    await self.channel.hangup()
+                # Hangup any bridged UIs
+                for ui in self._bridged_uis:
+                    await ui.hangup()
+                # Set the active flag to false
+                self.is_active = False
+            finally:
+                if self._ari_acquired:
+                    self._ari_acquired = False
+                    await AriClient.release()
