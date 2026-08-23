@@ -3,7 +3,7 @@ from agents import Agent, SQLiteSession, Runner, TContext, RunConfig, RunResultS
 
 from contextlib import asynccontextmanager
 from asteramisk.config import config
-from asteramisk.exceptions import GoBackException, GuardrailTriggeredRecoveryException
+from asteramisk.exceptions import GoBackException, GuardrailTriggeredRecoveryException, InputTimeoutException
 from asteramisk.internal.async_class import AsyncClass
 
 import logging
@@ -129,7 +129,7 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
-    async def menu(self, text, callbacks: dict[str, callable] = None, voice_callbacks: dict[str, callable] = None, text_callbacks: dict[str, callable] = None):
+    async def menu(self, text, callbacks: dict[str, callable] = None, voice_callbacks: dict[str, callable] = None, text_callbacks: dict[str, callable] = None, max_attempts=None):
         """
         Present a menu of options to the user
         Provide `text` as a string containing the menu options available. 
@@ -140,6 +140,7 @@ class UI(AsyncClass):
         :param callbacks: List of callbacks, one for each option
         :param voice_callbacks: Same as callbacks, but used only in voice UIs
         :param text_callbacks: Same as callbacks, but used only in text UIs
+        :param max_attempts: Maximum consecutive no-input prompts before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: None. Selected callback will be called
         """
         if callbacks and (voice_callbacks or text_callbacks):
@@ -159,6 +160,8 @@ class UI(AsyncClass):
 
         # Loop until a valid option is selected
         retry_reason = ""
+        no_input_attempts = 0
+        max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         while True:
             say_text = f"{retry_reason}{text}"
             # Prompt the user to select an option
@@ -169,6 +172,12 @@ class UI(AsyncClass):
             elif self.ui_type == self.UIType.TEXT:
                 selected = await self.prompt(say_text)
             selected = str(selected).strip()
+            if not selected:
+                no_input_attempts += 1
+                if max_attempts is not None and no_input_attempts >= max_attempts:
+                    raise InputTimeoutException("No input received for too many consecutive prompts")
+            else:
+                no_input_attempts = 0
             if selected not in local_callbacks:
                 if selected:
                     retry_reason = f"{selected} is not a valid option, please try again."
@@ -195,15 +204,16 @@ class UI(AsyncClass):
                 self._menu_navigation_state.callback_depth -= 1
         except GoBackException:
             # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
-            return await self.menu(text, callbacks, voice_callbacks, text_callbacks)
+            return await self.menu(text, callbacks, voice_callbacks, text_callbacks, max_attempts)
 
-    async def select(self, text, options: dict[str, Any] = None, voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None):
+    async def select(self, text, options: dict[str, Any] = None, voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None, max_attempts=None):
         """
         Present a list of choices to the user
         :param text: Text to prompt the user, must contain the menu
         :param options: Dictionary of options, like {"1": "Option 1", "2": "Option 2", ...}
         :param voice_options: Same as options, but used only in voice UIs
         :param text_options: Same as options, but used only in text UIs
+        :param max_attempts: Maximum consecutive no-input prompts before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: Selected option
         """
         if options and (voice_options or text_options):
@@ -222,6 +232,8 @@ class UI(AsyncClass):
 
         # Loop until a valid option is selected
         retry_reason = ""
+        no_input_attempts = 0
+        max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         while True:
             say_text = f"{retry_reason}{text}"
             # Prompt the user to select an option
@@ -232,6 +244,12 @@ class UI(AsyncClass):
             elif self.ui_type == self.UIType.TEXT:
                 selected = await self.prompt(say_text)
             selected = str(selected).strip()
+            if not selected:
+                no_input_attempts += 1
+                if max_attempts is not None and no_input_attempts >= max_attempts:
+                    raise InputTimeoutException("No input received for too many consecutive prompts")
+            else:
+                no_input_attempts = 0
             if selected not in local_options:
                 if selected:
                     retry_reason = f"{selected} is not a valid option, please try again. "

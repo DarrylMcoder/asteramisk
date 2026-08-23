@@ -10,7 +10,7 @@ from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, Re
 
 from asteramisk.config import config
 from asteramisk.ui import UI
-from asteramisk.exceptions import HangupException, GoBackException
+from asteramisk.exceptions import HangupException, GoBackException, InputTimeoutException
 from asteramisk.internal.tts import TTSEngine
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.internal.ari_client import AriClient
@@ -152,31 +152,37 @@ class VoiceUI(UI):
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self._wait_for_back_or(self.text_out_queue.put(text))
 
-    async def prompt(self, text, hint_phrases=[], hint_boost=10.0):
+    async def prompt(self, text, hint_phrases=[], hint_boost=10.0, max_attempts=None):
         """
         Prompt the user for input
         :param text: Text to prompt the user
         :param hint_phrases: list Biases the transcription towards these phrases
         :param hint_boost: float How much to boost the likelihood of these phrases, higher is more likely
+        :param max_attempts: Maximum consecutive prompts with no transcription before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: The user's input
         """
-        logger.debug(f"VoiceUI.prompt: {text}")
-        await self.done_speaking()
-        await self.say(text)
-        transcription = await self._wait_for_back_or(
-            self.transcribe_engine.transcribe_from_stream(
-                self.audconn,
-                hint_phrases=hint_phrases,
-                hint_boost=hint_boost,
+        max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
+        no_input_attempts = 0
+        while True:
+            logger.debug(f"VoiceUI.prompt: {text}")
+            await self.done_speaking()
+            await self.say(text)
+            transcription = await self._wait_for_back_or(
+                self.transcribe_engine.transcribe_from_stream(
+                    self.audconn,
+                    hint_phrases=hint_phrases,
+                    hint_boost=hint_boost,
+                )
             )
-        )
-        logger.debug(f"VoiceUI.prompt transcription: {transcription}")
-        # Immediately stop audio playback when we get the transcription
-        await self.audconn.clear_send_queue()
-        if not transcription:
+            logger.debug(f"VoiceUI.prompt transcription: {transcription}")
+            # Immediately stop audio playback when we get the transcription
+            await self.audconn.clear_send_queue()
+            if transcription:
+                return transcription
+            no_input_attempts += 1
+            if max_attempts is not None and no_input_attempts >= max_attempts:
+                raise InputTimeoutException("No input received for too many consecutive prompts")
             await self.say("I didn't get that. Please try again.")
-            return await self.prompt(text)
-        return transcription
 
     async def gather(self, text, num_digits) -> str:
         """
@@ -195,23 +201,29 @@ class VoiceUI(UI):
         """
         await self.channel.sendDTMF(dtmf=digits)
 
-    async def ask_yes_no(self, text) -> bool:
+    async def ask_yes_no(self, text, max_attempts=None) -> bool:
         """
         Ask the user a yes/no question
         :param text: Text to prompt the user
+        :param max_attempts: Maximum consecutive prompts with no digits before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: True if the user answers yes or False if the user answers no
         """
         prompt = "Press 1 for yes or 2 for no"
-        digits = await self.gather(f"{text} {prompt if prompt not in text else ''}", 1)
-        if not digits:
-            error_text = "You did not press any digit. Please try again"
-            await self.say(error_text)
-            return await self.ask_yes_no(text)
-        if digits not in ['1', '2']:
-            error_text = "Your input was invalid. Please try again. "
-            await self.say(error_text)
-            return await self.ask_yes_no(text)
-        return digits == '1'
+        max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
+        no_input_attempts = 0
+        while True:
+            digits = await self.gather(f"{text} {prompt if prompt not in text else ''}", 1)
+            if not digits:
+                no_input_attempts += 1
+                if max_attempts is not None and no_input_attempts >= max_attempts:
+                    raise InputTimeoutException("No input received for too many consecutive prompts")
+                await self.say("You did not press any digit. Please try again")
+                continue
+            no_input_attempts = 0
+            if digits not in ['1', '2']:
+                await self.say("Your input was invalid. Please try again. ")
+                continue
+            return digits == '1'
 
     async def input_stream(self):
         """

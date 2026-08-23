@@ -74,6 +74,9 @@ class Config:
     OUTBOUND_CALL_TIMEOUT = os.getenv('OUTBOUND_CALL_TIMEOUT', 30)
     """ The timeout in seconds for outbound calls. Default is 30 seconds. """
 
+    MAX_NO_INPUT_ATTEMPTS = int(os.getenv('MAX_NO_INPUT_ATTEMPTS', 3))
+    """ Maximum consecutive prompts receiving no input before timing out. """
+
     @property
     def GOOGLE_APPLICATION_CREDENTIALS(self):
         """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """

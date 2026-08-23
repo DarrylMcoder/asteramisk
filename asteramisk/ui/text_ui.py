@@ -5,7 +5,8 @@ from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.ui import UI
 from asteramisk.config import config
-from asteramisk.exceptions import HangupException
+from asteramisk.exceptions import HangupException, InputTimeoutException
+from asteramisk.config import config
 from asteramisk.internal.message_broker import MessageBroker
 
 import logging
@@ -116,20 +117,29 @@ class TextUI(UI):
             return await self.gather(f"Please enter {num_digits} digits", num_digits)
         return digits
 
-    async def ask_yes_no(self, text):
+    async def ask_yes_no(self, text, max_attempts=None):
         """
         Ask the user a yes/no question
         :param text: Text to prompt the user
+        :param max_attempts: Maximum consecutive prompts with no response before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: True if the user answers yes or False if the user answers no
         """
         message = f"{text} (yes/no)"
-        response = (await self.prompt(message)).strip().lower()
-        if response in {"yes", "y"}:
-            return True
-        if response in {"no", "n"}:
-            return False
-        await self.say("Please answer yes or no.")
-        return await self.ask_yes_no(text)
+        max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
+        no_input_attempts = 0
+        while True:
+            response = (await self.prompt(message)).strip().lower()
+            if response:
+                no_input_attempts = 0
+            else:
+                no_input_attempts += 1
+                if max_attempts is not None and no_input_attempts >= max_attempts:
+                    raise InputTimeoutException("No input received for too many consecutive prompts")
+            if response in {"yes", "y"}:
+                return True
+            if response in {"no", "n"}:
+                return False
+            await self.say("Please answer yes or no.")
 
     async def input_stream(self):
         """

@@ -3,17 +3,17 @@ from setuptools import setup, find_packages
 
 # Get the long description from the README file
 here = os.path.abspath(os.path.dirname(__file__))
-with open(os.path.join(here, 'docs', 'index.rst')) as f:
+with open(os.path.join(here, 'README.md')) as f:
     long_description = f.read()
 
 setup(
     name='asteramisk',
-    version='0.1.0',
+    version='0.1.1',
     author='Darryl Martin',
     author_email='darryl9829@gmail.com',
     description='Python library providing TWILIO-like voice and messaging APIs with Asterisk backend',
     long_description=long_description,
-    long_description_content_type='text/x-rst',
+    long_description_content_type='text/markdown',
     url='https://github.com/DarrylMcoder/asteramisk',
     packages=find_packages(),
     python_requires='>=3.6',

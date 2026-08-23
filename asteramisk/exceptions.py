@@ -36,6 +36,10 @@ class HangupException(AsteramiskException):
     """ Raised when a method is called on an already hung up UI. Can be used to detect remote hangups """
     pass
 
+class InputTimeoutException(AsteramiskException):
+    """Raised when the caller provides no input for too many consecutive prompts."""
+    pass
+
 class InvalidStateException(AsteramiskException):
     """ Raised when a method is called in an invalid state """
     pass
