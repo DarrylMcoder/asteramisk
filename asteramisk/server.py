@@ -12,6 +12,7 @@ from asteramisk.internal.message_broker import MessageBroker
 from asteramisk.internal.async_class import AsyncClass
 from asteramisk.internal.ari_client import AriClient
 from asteramisk.internal.audiosocket import AudiosocketAsync
+from asteramisk.exceptions import InputTimeoutException
 
 import logging
 logger = logging.getLogger(__name__)
@@ -370,6 +371,10 @@ class Server(AsyncClass):
                 except asyncio.CancelledError:
                     # CancelledError must be propagated, see note in _main_handler
                     raise
+                except InputTimeoutException:
+                    logger.warning("Input timed out for call %s", channel.id)
+                    await ui.say("I didn't receive any input. Goodbye.")
+                    await ui.hangup()
                 except Exception as e:
                     logger.exception(e)
                     # Let the user know that something went wrong
@@ -418,6 +423,9 @@ class Server(AsyncClass):
         except asyncio.CancelledError:
             ## CancelledError must be propagated. See note in _main_handler
             raise
+        except InputTimeoutException:
+            logger.warning("Input timed out for text conversation %s", phone_number)
+            await ui.say("I didn't receive a response. Goodbye.")
         except Exception as e:
             logger.exception(e)
             # Let the user know that something went wrong
