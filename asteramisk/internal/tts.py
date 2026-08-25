@@ -16,6 +16,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TTSEngine(AsyncSingleton):
+    GOOGLE_TTS_MAX_BYTES = 5000
+
+    def _split_for_google_tts(self, text):
+        """Split text into UTF-8-safe chunks accepted by Cloud TTS."""
+        chunks = []
+        current = ""
+        for word in text.split():
+            candidate = f"{current} {word}".strip()
+            if current and len(candidate.encode("utf-8")) > self.GOOGLE_TTS_MAX_BYTES:
+                chunks.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        return chunks or [text]
+
     async def __create__(self):
         # Create the directory if it doesn't exist
         assert config.ASTERISK_SOUNDS_DIR is not None
@@ -46,7 +63,6 @@ class TTSEngine(AsyncSingleton):
         return clean_text
 
     async def _premium_tts(self, text, voice=None):
-        input = texttospeech.SynthesisInput(text=text)
         voice_params = texttospeech.VoiceSelectionParams(
             language_code='en-US',
             name=voice
@@ -55,8 +71,19 @@ class TTSEngine(AsyncSingleton):
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000
         )
-        response = await self._client.synthesize_speech(input=input, voice=voice_params, audio_config=audio_config)
-        return response.audio_content
+        # Cloud TTS rejects requests over 5000 UTF-8 bytes.  Long Wikipedia
+        # sections and generated responses are common, so split on word
+        # boundaries and combine the resulting PCM audio locally.
+        chunks = self._split_for_google_tts(text)
+
+        audio = bytearray()
+        for chunk in chunks:
+            request = texttospeech.SynthesisInput(text=chunk)
+            response = await self._client.synthesize_speech(
+                input=request, voice=voice_params, audio_config=audio_config
+            )
+            audio.extend(response.audio_content)
+        return bytes(audio)
 
     async def _free_tts(self, text):
         """ Use gTTS to convert text to audio and return the audio content """
