@@ -134,6 +134,25 @@ class Communicator(AsyncClass):
         )
         logger.info(f"Created channel {channel.json['name']} with ID {channel.json['id']}")
 
+        channel_id = channel.json["id"]
+        channel_destroyed = asyncio.Event()
+        channel_destroyed_cause = None
+        channel_destroyed_cause_txt = None
+
+        def _on_channel_destroyed(_channel, event):
+            nonlocal channel_destroyed_cause, channel_destroyed_cause_txt
+            channel_destroyed_cause = event.get("cause")
+            channel_destroyed_cause_txt = event.get("cause_txt")
+            channel_destroyed.set()
+
+        channel.on_event("ChannelDestroyed", _on_channel_destroyed)
+
+        async def _wait_briefly_for_destroy_details():
+            try:
+                await asyncio.wait_for(channel_destroyed.wait(), timeout=0.25)
+            except TimeoutError:
+                pass
+
         # All the following in one try/except block to catch originating UI hangups (asyncio.CancelledError)
         try:
 
@@ -142,17 +161,30 @@ class Communicator(AsyncClass):
             timeout = timeout or config.OUTBOUND_CALL_TIMEOUT or 30
             while asyncio.get_event_loop().time() - start_time < timeout:
                 try:
-                    channel = await self._ari_client.channels.get(channelId=channel.json['id'])
+                    channel = await self._ari_client.channels.get(channelId=channel_id)
                     state = channel.json['state']
                     if state == "Up":
                         logger.debug(f"Channel {channel.json['name']} is now Up, Detected via polling")
                         break
                 except aiohttp.web_exceptions.HTTPNotFound:
-                    raise asteramisk.exceptions.CallFailedException("Call failed. Channel destroyed before being ready.")
+                    await _wait_briefly_for_destroy_details()
+                    message = "Call failed. Channel destroyed before being ready."
+                    if channel_destroyed_cause_txt:
+                        message = f"Call failed: {channel_destroyed_cause_txt}"
+                    raise asteramisk.exceptions.CallFailedException(
+                        message,
+                        cause=channel_destroyed_cause,
+                        cause_txt=channel_destroyed_cause_txt,
+                    )
                 await asyncio.sleep(0.1)
             else:
                 # Timed out
-                raise asteramisk.exceptions.CallFailedException("Call failed. Reached timeout waiting for channel to be answered.")
+                await _wait_briefly_for_destroy_details()
+                raise asteramisk.exceptions.CallFailedException(
+                    "Call failed. Reached timeout waiting for channel to be answered.",
+                    cause=channel_destroyed_cause,
+                    cause_txt=channel_destroyed_cause_txt,
+                )
             
             logger.debug(f"Dialled out to {recipient_number} on channel {channel.json['name']} successfully")
 
