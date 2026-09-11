@@ -1,4 +1,5 @@
 import asyncio
+import math
 from contextlib import asynccontextmanager, suppress
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
@@ -85,6 +86,10 @@ class TextUI(UI):
                 with suppress(asyncio.CancelledError):
                     await task
     
+    async def control_say(self, text, *, skip_seconds=3):
+        """Send text; playback controls and skip_seconds do not apply to text."""
+        await self.say(text)
+
     async def say(self, text):
         """
         Say text to the user. Will be sent as a text message
@@ -92,6 +97,23 @@ class TextUI(UI):
         """
         self._ensure_active()
         await self._broker.send_message(self._recipient_number, text)
+
+    async def sleep(self, seconds):
+        """
+        Wait before continuing the text conversation.
+
+        Unlike VoiceUI.sleep(), this method waits for the specified duration
+        before returning because text messages do not have an output queue.
+        :param seconds: Duration of the pause in seconds
+        :raise ValueError: If ``seconds`` is negative, non-finite, or not numeric
+        """
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+            raise ValueError("seconds must be a finite, non-negative number")
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("seconds must be a finite, non-negative number")
+
+        self._ensure_active()
+        await asyncio.sleep(seconds)
 
     async def prompt(self, text):
         """
@@ -124,7 +146,7 @@ class TextUI(UI):
         :param max_attempts: Maximum consecutive prompts with no response before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
         :return: True if the user answers yes or False if the user answers no
         """
-        message = f"{text} (yes/no)"
+        message = self._join_prompt_parts(text, "(yes/no)")
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         no_input_attempts = 0
         while True:

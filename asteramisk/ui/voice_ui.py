@@ -2,8 +2,10 @@ import aiohttp
 import uuid
 import aioari
 import asyncio
+import math
 import samplerate
 import numpy as np
+from dataclasses import dataclass
 from contextlib import suppress, asynccontextmanager
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, RealtimeSessionModelSettings
@@ -23,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 ASTERISK_SAMPLE_RATE = 8000
 OPENAI_SAMPLE_RATE = 24000
+MAX_PAUSE_SECONDS = 60 * 60
+
+
+@dataclass(frozen=True)
+class _Silence:
+    seconds: float
+
 
 class VoiceUI(UI):
     """
@@ -152,6 +161,31 @@ class VoiceUI(UI):
         # Simply add the text to the queue, the _out_media_exchanger will pick it up
         await self._wait_for_back_or(self.text_out_queue.put(text))
 
+    async def sleep(self, seconds) -> None:
+        """
+        Queue silence for the specified duration.
+
+        The pause is played in sequence with queued speech, but this method
+        returns as soon as the silence has been queued.
+        :param seconds: Duration of the pause in seconds
+        :raise ValueError: If ``seconds`` is negative, non-finite, not numeric,
+            or longer than one hour
+        """
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+            raise ValueError("seconds must be a finite, non-negative number")
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("seconds must be a finite, non-negative number")
+        if seconds > MAX_PAUSE_SECONDS:
+            raise ValueError("seconds must not exceed 3600 (one hour)")
+
+        logger.debug(f"VoiceUI.sleep: {seconds} seconds")
+        await self._ensure_answered()
+        await self._check_go_back()
+        if not self.is_active:
+            raise HangupException("UI is inactive, cannot sleep(). User probably hung up")
+
+        await self._wait_for_back_or(self.text_out_queue.put(_Silence(float(seconds))))
+
     async def prompt(self, text, hint_phrases=[], hint_boost=10.0, max_attempts=None):
         """
         Prompt the user for input
@@ -212,7 +246,8 @@ class VoiceUI(UI):
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         no_input_attempts = 0
         while True:
-            digits = await self.gather(f"{text} {prompt if prompt not in text else ''}", 1)
+            message = self._join_prompt_parts(text, prompt if prompt not in text else "")
+            digits = await self.gather(message, 1)
             if not digits:
                 no_input_attempts += 1
                 if max_attempts is not None and no_input_attempts >= max_attempts:
@@ -441,7 +476,13 @@ class VoiceUI(UI):
 
     ### Voice UI specific methods ###
 
-    async def control_say(self, text):
+    async def control_say(self, text, *, skip_seconds=3):
+        """Read text with playback controls and a positive skip interval in seconds."""
+        if (isinstance(skip_seconds, bool) or not isinstance(skip_seconds, (int, float))
+                or not math.isfinite(skip_seconds) or skip_seconds < 0.001
+                or skip_seconds * 1000 > 2147483647):
+            raise ValueError("skip_seconds must be a positive finite interval of at least one millisecond")
+        skip_ms = int(skip_seconds * 1000)
         logger.debug("VoiceUI.control_say")
         # Speak text, allowing rewind and fast forward
         filename = await self._wait_for_back_or(
@@ -451,7 +492,7 @@ class VoiceUI(UI):
         await self.done_speaking()
         try:
             playback = await self._wait_for_back_or(
-                self.channel.play(media=f"sound:{filename}")
+                self.channel.play(media=f"sound:{filename}", skipms=skip_ms)
             )
         except aiohttp.web_exceptions.HTTPNotFound as e:
             logger.error(f"Failed to play {filename}. Channel may have been destroyed")
@@ -635,8 +676,14 @@ class VoiceUI(UI):
         try:
             logger.debug("VoiceUI._out_media_exchanger")
             while True:
-                text = await self.text_out_queue.get()
-                audio = await self.tts_engine.tts(text=text, voice=self.voice)
+                output = await self.text_out_queue.get()
+                if isinstance(output, _Silence):
+                    # AudioSocket expects 8 kHz, 16-bit mono PCM. Zero-valued
+                    # samples are silence and write() will packetize them.
+                    num_samples = round(output.seconds * ASTERISK_SAMPLE_RATE)
+                    audio = b'\x00\x00' * num_samples
+                else:
+                    audio = await self.tts_engine.tts(text=output, voice=self.voice)
                 # Wait for the previous audio to finish playing, so that we don't get way out of sync
                 await self.audconn.drain_send_queue()
                 await self.audconn.write(audio)

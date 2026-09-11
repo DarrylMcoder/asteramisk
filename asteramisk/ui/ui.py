@@ -25,6 +25,11 @@ class UI(AsyncClass):
         VOICE = "voice"
         TEXT = "text"
 
+    @staticmethod
+    def _join_prompt_parts(*parts):
+        """Join non-empty prompt fragments with one boundary space."""
+        return " ".join(str(part).strip() for part in parts if str(part).strip())
+
     async def __create__(self):
         # DTMF back navigation is meaningful only while a menu callback (or a
         # submenu called by that callback) is active.
@@ -91,6 +96,16 @@ class UI(AsyncClass):
         """
         Say text to the user
         :param text: Text to say
+        """
+        raise NotImplementedError
+
+    async def sleep(self, seconds):
+        """
+        Queue a pause before subsequent output.
+
+        Voice UIs queue silence and return immediately. Text UIs wait for the
+        specified duration before returning.
+        :param seconds: Duration of the pause in seconds
         """
         raise NotImplementedError
 
@@ -163,7 +178,7 @@ class UI(AsyncClass):
         no_input_attempts = 0
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         while True:
-            say_text = f"{retry_reason}{text}"
+            say_text = self._join_prompt_parts(retry_reason, text)
             # Prompt the user to select an option
             # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
             if self.ui_type == self.UIType.VOICE:
@@ -235,7 +250,7 @@ class UI(AsyncClass):
         no_input_attempts = 0
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         while True:
-            say_text = f"{retry_reason}{text}"
+            say_text = self._join_prompt_parts(retry_reason, text)
             # Prompt the user to select an option
             # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
             if self.ui_type == self.UIType.VOICE:
@@ -252,9 +267,9 @@ class UI(AsyncClass):
                 no_input_attempts = 0
             if selected not in local_options:
                 if selected:
-                    retry_reason = f"{selected} is not a valid option, please try again. "
+                    retry_reason = f"{selected} is not a valid option, please try again."
                 else:
-                    retry_reason = "You did not select an option, please try again. "
+                    retry_reason = "You did not select an option, please try again."
                 continue
             # Break the loop if a valid option is selected
             break

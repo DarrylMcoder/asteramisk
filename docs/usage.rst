@@ -50,6 +50,16 @@ active shared ARI application cannot be renamed.
 Inside your call and text message handlers, you can use the ``UI`` object to control the call or text conversation.
 Use the ``answer`` method to perform any setup needed before communication.
 Use the ``say`` method to speak or send a message to the other party.
+
+On voice calls, use ``sleep`` to queue a pause between spoken messages::
+
+    await ui.say('Please wait')
+    await ui.sleep(2)
+    await ui.say('Thank you')
+
+For ``VoiceUI``, ``sleep`` queues up to one hour of silence and returns
+immediately. Longer pauses raise ``ValueError``. For ``TextUI``, it waits for
+the requested duration before returning, delaying the next operation.
 Use the ``gather`` method to gather digits from the caller.
 Use the ``prompt`` method to prompt the caller for text input.
 Use the ``menu`` method to present a menu to the caller and call a specified callback for the user's choice.
@@ -91,3 +101,12 @@ using text-only modalities:
 
 Do not use ``await`` before either context-manager method.
 Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).
+
+Controlled playback
+-------------------
+
+``await ui.control_say(text, skip_seconds=15)`` reads text with key 4 to rewind,
+key 5 to pause or resume, and key 6 to skip forward. ``skip_seconds`` is
+keyword-only and defaults to three seconds. VoiceUI converts the interval to
+whole milliseconds for Asterisk. Use a positive, finite interval of at least
+one millisecond. TextUI accepts the same argument but simply sends the text.

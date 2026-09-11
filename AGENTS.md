@@ -25,6 +25,7 @@ Place future unit tests near the package or in a dedicated `tests/` directory, u
 ## Commit & Pull Request Guidelines
 
 Recent commits use short, imperative descriptions such as `Fix ...` and `Add ...`. Follow that convention: keep the subject specific and concise. Pull requests should explain the behavior change, identify affected Asterisk/ARI/AMI or provider configuration, list verification commands and results, and include documentation or example-config updates when public behavior changes. Call out breaking changes and external-service requirements explicitly.
+Commits containing AI-generated code are to contain a note acknowledging this.
 
 ## Security & Configuration Tips
 
