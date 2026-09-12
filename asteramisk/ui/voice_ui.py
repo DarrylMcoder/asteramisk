@@ -6,7 +6,7 @@ import math
 import samplerate
 import numpy as np
 from dataclasses import dataclass
-from contextlib import suppress, asynccontextmanager
+from contextlib import suppress, asynccontextmanager, aclosing
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, RealtimeSessionModelSettings
 
@@ -386,6 +386,7 @@ class VoiceUI(UI):
             ))
 
             async with await runner.run(context=context) as session:
+                asterisk_to_agent_task = None
                 try:
                     # Make the agent greet the caller if talk_first
                     if talk_first:
@@ -429,15 +430,26 @@ class VoiceUI(UI):
 
                 finally:
                     # Agent session ended
-                    asterisk_to_agent_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await asterisk_to_agent_task
+                    if asterisk_to_agent_task is not None:
+                        asterisk_to_agent_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await asterisk_to_agent_task
 
-        try:
-            yield _gen()
-        finally:
-            # Context manager ended
-            pass
+        async def next_event(events):
+            return await anext(events)
+
+        async def interruptible_events(events):
+            while True:
+                try:
+                    event = await self._wait_for_back_or(next_event(events))
+                except StopAsyncIteration:
+                    return
+                yield event
+
+        await self.done_speaking()
+        async with aclosing(_gen()) as events:
+            async with aclosing(interruptible_events(events)) as output:
+                yield output
 
     async def bridge(self, ui, absorbDTMF: bool = False, mute: bool = False):
         """

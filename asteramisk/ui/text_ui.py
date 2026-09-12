@@ -1,12 +1,12 @@
 import asyncio
 import math
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, suppress, aclosing
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.ui import UI
 from asteramisk.config import config
-from asteramisk.exceptions import HangupException, InputTimeoutException
+from asteramisk.exceptions import HangupException, InputTimeoutException, GoBackException
 from asteramisk.config import config
 from asteramisk.internal.message_broker import MessageBroker
 
@@ -66,26 +66,33 @@ class TextUI(UI):
             raise HangupException("TextUI is closed; create a new TextUI to start another conversation")
 
     async def _receive_message(self):
-        self._ensure_active()
-        message_task = asyncio.create_task(self._incoming_queue.get())
-        closed_task = asyncio.create_task(self._closed_event.wait())
-        try:
-            done, _ = await asyncio.wait(
-                (message_task, closed_task),
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            # If both complete together, consume a message that was already
-            # accepted before shutdown rather than dropping it.
-            if message_task in done:
-                return message_task.result()
-            raise HangupException("TextUI was hung up while waiting for a message")
-        finally:
-            for task in (message_task, closed_task):
-                if not task.done():
-                    task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-    
+        while True:
+            self._ensure_active()
+            message_task = asyncio.create_task(self._incoming_queue.get())
+            closed_task = asyncio.create_task(self._closed_event.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    (message_task, closed_task),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                # If both complete together, consume a message that was already
+                # accepted before shutdown rather than dropping it.
+                if message_task in done:
+                    message = message_task.result()
+                    if config.GO_BACK_ON_STAR and str(message).strip().casefold() in {"*", "back"}:
+                        if self._menu_navigation_state.callback_depth > 0:
+                            raise GoBackException()
+                        # Like voice star, ignore back when there is no parent menu.
+                        continue
+                    return message
+                raise HangupException("TextUI was hung up while waiting for a message")
+            finally:
+                for task in (message_task, closed_task):
+                    if not task.done():
+                        task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+
     async def control_say(self, text, *, skip_seconds=3):
         """Send text; playback controls and skip_seconds do not apply to text."""
         await self.say(text)
@@ -191,30 +198,49 @@ class TextUI(UI):
         })
 
         async def message_loop(session):
-            try:
-                while self.is_active:
-                    logger.debug("TextUI.run_realtime_agent: waiting for message")
-                    message = await self._receive_message()
-                    await session.send_message(message)
-            except HangupException:
-                return
+            while self.is_active:
+                logger.debug("TextUI.run_realtime_agent: waiting for message")
+                message = await self._receive_message()
+                await session.send_message(message)
+            raise HangupException("TextUI closed during agent conversation")
 
         async def _gen():
             async with await runner.run(context=context) as session:
                 if talk_first:
                     await session.send_message("New conversation, greet the user.")
                 message_task = asyncio.create_task(message_loop(session))
+                event_task = None
                 try:
-                    async for event in session:
+                    events = aiter(session)
+                    async def next_event():
+                        return await anext(events)
+
+                    while True:
+                        event_task = asyncio.create_task(next_event())
+                        done, _ = await asyncio.wait(
+                            (event_task, message_task), return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if message_task in done:
+                            message_task.result()
+                            return
+                        try:
+                            event = event_task.result()
+                        except StopAsyncIteration:
+                            return
                         if event.type == "error":
                             logger.error(f"OpenAI session error: {event}")
                         yield event
                 finally:
+                    if event_task is not None and not event_task.done():
+                        event_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await event_task
                     message_task.cancel()
-                    with suppress(asyncio.CancelledError):
+                    with suppress(asyncio.CancelledError, GoBackException, HangupException):
                         await message_task
 
-        yield _gen()
+        async with aclosing(_gen()) as events:
+            yield events
 
     async def bridge(self, ui):
         """

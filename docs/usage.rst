@@ -100,6 +100,13 @@ using text-only modalities:
                 pass
 
 Do not use ``await`` before either context-manager method.
+Leaving ``run_realtime_agent()`` closes its event stream and SDK session and
+stops its input task, including after an early ``break`` or an exception.
+VoiceUI waits for queued speech before starting and supports star navigation
+during the agent conversation. TextUI accepts ``back`` or ``*`` to go back;
+these messages are not forwarded to the agent. TextUI does not wait for output.
+Back navigation raises ``GoBackException`` through the context so an enclosing
+menu can handle it normally. Consume the yielded stream inside its context.
 Read more about OpenAI agents in the [OpenAI documentation](https://platform.openai.com/docs/guides/agents).
 
 Controlled playback
