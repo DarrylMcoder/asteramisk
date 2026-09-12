@@ -145,6 +145,7 @@ config.ASTERISK_PSTN_GATEWAY_USER = 'yourusername' # A username that has been co
 config.SYSTEM_PHONE_NUMBER = '1234567890' # A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint
 config.SYSTEM_NAME = 'Your Company Name' # A name that will be used in outgoing calls and text messages
 config.GO_BACK_ON_STAR = True # Whether VoiceUI should treat DTMF * as a back-navigation command. Default is True
+config.SPEECH_START_TIMEOUT = 8 # Seconds to wait for speech to begin after a voice prompt finishes
 
 # Optional configuration variables
 config.ASTERISK_SOUNDS_DIR = '/usr/share/asterisk/sounds' # The directory where Asterisk stores its sound files. You need to set this only if you have changed the default location on the Asterisk side
@@ -201,20 +202,31 @@ if __name__ == '__main__':
 ```
 
 `Server`, `Communicator`, and `VoiceUI` share one process-local ARI
-application and event connection. A standalone `Communicator` starts that
-connection automatically. If you pass a custom `stasis_app` to
-`Server.create()`, create the server before creating a `Communicator`; an
-active shared ARI application cannot be renamed.
+application and event connection. A standalone `Communicator` starts
+that connection automatically. If you pass a custom `stasis_app` to
+`Server.create()`, create the server before creating a `Communicator`;
+an active shared ARI application cannot be renamed.
 
 Inside your call and text message handlers, you can use the `UI` object
 to control the call or text conversation. Use the `answer` method to
 perform any setup needed before communication. Use the `say` method to
-speak or send a message to the other party. Use the `gather` method to
-gather digits from the caller. Use the `prompt` method to prompt the
-caller for text input. Use the `menu` method to present a menu to the
-caller and call a specified callback for the user\'s choice. Use the
-`select` method to present a menu to the caller and get the user\'s
-choice. Use the `hangup` method to end the call or text session.
+speak or send a message to the other party.
+
+On voice calls, use `sleep` to queue a pause between spoken messages:
+
+    await ui.say('Please wait')
+    await ui.sleep(2)
+    await ui.say('Thank you')
+
+For `VoiceUI`, `sleep` queues up to one hour of silence and returns
+immediately. Longer pauses raise `ValueError`. For `TextUI`, it waits
+for the requested duration before returning, delaying the next
+operation. Use the `gather` method to gather digits from the caller. Use
+the `prompt` method to prompt the caller for text input. Use the `menu`
+method to present a menu to the caller and call a specified callback for
+the user\'s choice. Use the `select` method to present a menu to the
+caller and get the user\'s choice. Use the `hangup` method to end the
+call or text session.
 
 Text sessions have an explicit lifecycle. Once `TextUI.hangup()` is
 called, that UI is closed and cannot send or receive further messages. A
@@ -249,6 +261,23 @@ async with ui.run_realtime_agent(agent) as session:
         pass
 ```
 
-Do not use `await` before either context-manager method. Read more about
-OpenAI agents in the \[OpenAI
+Do not use `await` before either context-manager method. Leaving
+`run_realtime_agent()` closes its event stream and SDK session and stops
+its input task, including after an early `break` or an exception.
+VoiceUI waits for queued speech before starting and supports star
+navigation during the agent conversation. TextUI accepts `back` or `*`
+to go back; these messages are not forwarded to the agent. TextUI does
+not wait for output. Back navigation raises `GoBackException` through
+the context so an enclosing menu can handle it normally. Consume the
+yielded stream inside its context. Read more about OpenAI agents in the
+\[OpenAI
 documentation\](<https://platform.openai.com/docs/guides/agents>).
+
+# Controlled playback
+
+`await ui.control_say(text, skip_seconds=15)` reads text with key 4 to
+rewind, key 5 to pause or resume, and key 6 to skip forward.
+`skip_seconds` is keyword-only and defaults to three seconds. VoiceUI
+converts the interval to whole milliseconds for Asterisk. Use a
+positive, finite interval of at least one millisecond. TextUI accepts
+the same argument but simply sends the text.

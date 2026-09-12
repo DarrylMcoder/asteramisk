@@ -202,11 +202,7 @@ class VoiceUI(UI):
             await self.done_speaking()
             await self.say(text)
             transcription = await self._wait_for_back_or(
-                self.transcribe_engine.transcribe_from_stream(
-                    self.audconn,
-                    hint_phrases=hint_phrases,
-                    hint_boost=hint_boost,
-                )
+                self._transcribe_with_speech_timeout(hint_phrases, hint_boost)
             )
             logger.debug(f"VoiceUI.prompt transcription: {transcription}")
             # Immediately stop audio playback when we get the transcription
@@ -216,7 +212,63 @@ class VoiceUI(UI):
             no_input_attempts += 1
             if max_attempts is not None and no_input_attempts >= max_attempts:
                 raise InputTimeoutException("No input received for too many consecutive prompts")
-            await self.say("I didn't get that. Please try again.")
+            await self.say("I didn't hear a response. Please try again.")
+
+    async def _transcribe_with_speech_timeout(self, hint_phrases, hint_boost):
+        speech_started = asyncio.Event()
+        transcription_task = asyncio.create_task(
+            self.transcribe_engine.transcribe_from_stream(
+                self.audconn,
+                hint_phrases=hint_phrases,
+                hint_boost=hint_boost,
+                speech_started=speech_started,
+            )
+        )
+        timeout_task = asyncio.create_task(
+            self._wait_for_speech_start(speech_started)
+        )
+        barge_in_task = asyncio.create_task(
+            self._stop_prompt_on_speech(speech_started)
+        )
+        try:
+            done, _ = await asyncio.wait(
+                (transcription_task, timeout_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if transcription_task in done:
+                return transcription_task.result()
+            if await timeout_task:
+                return await transcription_task
+            logger.debug("VoiceUI.prompt: speech-start timeout expired")
+            return ""
+        finally:
+            for task in (transcription_task, timeout_task, barge_in_task):
+                if not task.done():
+                    task.cancel()
+            for task in (transcription_task, timeout_task, barge_in_task):
+                with suppress(asyncio.CancelledError):
+                    await task
+
+    async def _wait_for_speech_start(self, speech_started):
+        await self._done_speaking()
+        logger.debug(
+            "VoiceUI.prompt: prompt playback finished; waiting %.2f seconds for speech",
+            config.SPEECH_START_TIMEOUT,
+        )
+        try:
+            await asyncio.wait_for(
+                speech_started.wait(),
+                timeout=config.SPEECH_START_TIMEOUT,
+            )
+            logger.debug("VoiceUI.prompt: transcript activity canceled timeout")
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def _stop_prompt_on_speech(self, speech_started):
+        await speech_started.wait()
+        logger.debug("VoiceUI.prompt: transcript activity triggered barge-in")
+        await self.stop_speaking()
 
     async def gather(self, text, num_digits) -> str:
         """
@@ -252,11 +304,11 @@ class VoiceUI(UI):
                 no_input_attempts += 1
                 if max_attempts is not None and no_input_attempts >= max_attempts:
                     raise InputTimeoutException("No input received for too many consecutive prompts")
-                await self.say("You did not press any digit. Please try again")
+                await self.say("I didn't receive a selection. Please try again.")
                 continue
             no_input_attempts = 0
             if digits not in ['1', '2']:
-                await self.say("Your input was invalid. Please try again. ")
+                await self.say("That wasn't one of the choices. Please try again.")
                 continue
             return digits == '1'
 

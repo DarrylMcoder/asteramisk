@@ -373,7 +373,7 @@ class Server(AsyncClass):
                     raise
                 except InputTimeoutException:
                     logger.warning("Input timed out for call %s", channel.id)
-                    await ui.say("I didn't receive any input. Goodbye.")
+                    await ui.say("I still didn't hear a response, so I'll end the call now. Goodbye.")
                     await ui.hangup()
                 except Exception as e:
                     logger.exception(e)
@@ -425,7 +425,7 @@ class Server(AsyncClass):
             raise
         except InputTimeoutException:
             logger.warning("Input timed out for text conversation %s", phone_number)
-            await ui.say("I didn't receive a response. Goodbye.")
+            await ui.say("I still didn't receive a response, so I'll end this conversation now.")
         except Exception as e:
             logger.exception(e)
             # Let the user know that something went wrong

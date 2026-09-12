@@ -33,7 +33,7 @@ class PromptSpacingTests(unittest.IsolatedAsyncioTestCase):
             ui.prompts,
             [
                 "Choose an option.",
-                "invalid is not a valid option, please try again. Choose an option.",
+                "That wasn't one of the choices. Please try again. Choose an option.",
             ],
         )
 
@@ -44,7 +44,7 @@ class PromptSpacingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             ui.prompts[-1],
-            "invalid is not a valid option, please try again. Choose an option.",
+            "That wasn't one of the choices. Please try again. Choose an option.",
         )
 
     async def test_voice_yes_no_suffix_has_one_boundary_space(self):

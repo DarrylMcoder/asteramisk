@@ -100,6 +100,7 @@ See the ``config`` module for a complete list of configuration variables.
         config.SYSTEM_PHONE_NUMBER = '1234567890' # A phone number that has been configured with your SIP provider to be routed to your Asterisk endpoint
         config.SYSTEM_NAME = 'Your Company Name' # A name that will be used in outgoing calls and text messages
         config.GO_BACK_ON_STAR = True # Whether VoiceUI should treat DTMF * as a back-navigation command. Default is True
+        config.SPEECH_START_TIMEOUT = 8 # Seconds to wait for speech to begin after a voice prompt finishes
 
         # Optional configuration variables
         config.ASTERISK_SOUNDS_DIR = '/usr/share/asterisk/sounds' # The directory where Asterisk stores its sound files. You need to set this only if you have changed the default location on the Asterisk side

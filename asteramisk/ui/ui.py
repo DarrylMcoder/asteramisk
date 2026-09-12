@@ -195,9 +195,9 @@ class UI(AsyncClass):
                 no_input_attempts = 0
             if selected not in local_callbacks:
                 if selected:
-                    retry_reason = f"{selected} is not a valid option, please try again."
+                    retry_reason = "That wasn't one of the choices. Please try again."
                 else:
-                    retry_reason = "You did not select an option, please try again."
+                    retry_reason = "I didn't receive a selection. Please try again."
                 continue
             # Break the loop if a valid option is selected
             break
@@ -267,9 +267,9 @@ class UI(AsyncClass):
                 no_input_attempts = 0
             if selected not in local_options:
                 if selected:
-                    retry_reason = f"{selected} is not a valid option, please try again."
+                    retry_reason = "That wasn't one of the choices. Please try again."
                 else:
-                    retry_reason = "You did not select an option, please try again."
+                    retry_reason = "I didn't receive a selection. Please try again."
                 continue
             # Break the loop if a valid option is selected
             break

@@ -77,6 +77,9 @@ class Config:
     MAX_NO_INPUT_ATTEMPTS = int(os.getenv('MAX_NO_INPUT_ATTEMPTS', 3))
     """ Maximum consecutive prompts receiving no input before timing out. """
 
+    SPEECH_START_TIMEOUT = float(os.getenv('SPEECH_START_TIMEOUT', 8))
+    """ Seconds to wait for speech to begin after a voice prompt finishes. """
+
     @property
     def GOOGLE_APPLICATION_CREDENTIALS(self):
         """ The path to the google application credentials file. This is needed for the google cloud speech api. Without it, this library is very limited. """
