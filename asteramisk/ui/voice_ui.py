@@ -287,18 +287,24 @@ class VoiceUI(UI):
         """
         await self.channel.sendDTMF(dtmf=digits)
 
-    async def ask_yes_no(self, text, max_attempts=None) -> bool:
+    async def ask_yes_no(self, text, max_attempts=None,
+                         voice_instruction=None, text_instruction=None) -> bool:
         """
         Ask the user a yes/no question
         :param text: Text to prompt the user
         :param max_attempts: Maximum consecutive prompts with no digits before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
+        :param voice_instruction: DTMF suffix; None uses the generic yes/no instruction
+        :param text_instruction: Text-only instruction, ignored by VoiceUI
         :return: True if the user answers yes or False if the user answers no
         """
-        prompt = "Press 1 for yes or 2 for no"
+        prompt = (
+            "Press 1 for yes or 2 for no"
+            if voice_instruction is None else voice_instruction
+        )
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         no_input_attempts = 0
         while True:
-            message = self._join_prompt_parts(text, prompt if prompt not in text else "")
+            message = self._join_prompt_parts(text, prompt if prompt and prompt not in text else "")
             digits = await self.gather(message, 1)
             if not digits:
                 no_input_attempts += 1

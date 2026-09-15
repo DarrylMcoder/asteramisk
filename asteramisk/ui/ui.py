@@ -125,10 +125,14 @@ class UI(AsyncClass):
         """
         raise NotImplementedError
 
-    async def ask_yes_no(self, text) -> bool:
+    async def ask_yes_no(self, text, max_attempts=None,
+                         voice_instruction=None, text_instruction=None) -> bool:
         """
         Ask the user a yes/no question
         :param text: Text to prompt the user
+        :param max_attempts: Maximum consecutive prompts receiving no input
+        :param voice_instruction: Optional voice suffix; None uses the default
+        :param text_instruction: Optional text suffix; None uses the default
         :return: True if the user answers yes or False if the user answers no
         """
         raise NotImplementedError

@@ -146,14 +146,18 @@ class TextUI(UI):
             return await self.gather(f"Please enter {num_digits} digits", num_digits)
         return digits
 
-    async def ask_yes_no(self, text, max_attempts=None):
+    async def ask_yes_no(self, text, max_attempts=None,
+                         voice_instruction=None, text_instruction=None):
         """
         Ask the user a yes/no question
         :param text: Text to prompt the user
         :param max_attempts: Maximum consecutive prompts with no response before raising InputTimeoutException. None uses config.MAX_NO_INPUT_ATTEMPTS.
+        :param voice_instruction: Voice-only instruction, ignored by TextUI
+        :param text_instruction: Text suffix; None uses (yes/no)
         :return: True if the user answers yes or False if the user answers no
         """
-        message = self._join_prompt_parts(text, "(yes/no)")
+        prompt = "(yes/no)" if text_instruction is None else text_instruction
+        message = self._join_prompt_parts(text, prompt)
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         no_input_attempts = 0
         while True:

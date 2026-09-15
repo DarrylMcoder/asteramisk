@@ -228,6 +228,22 @@ the user\'s choice. Use the `select` method to present a menu to the
 caller and get the user\'s choice. Use the `hangup` method to end the
 call or text session.
 
+`ask_yes_no` uses `1` for true and `2` for false on voice calls.
+Customize each medium\'s instruction while sharing the main text:
+
+    correct = await ui.ask_yes_no(
+        "Your name is Bob.",
+        voice_instruction="If that's correct, press 1. Otherwise, press 2.",
+        text_instruction="Is that correct? (yes/no)",
+    )
+
+Each instruction replaces its medium\'s default suffix. When omitted or
+set to `None`, `voice_instruction` defaults to
+`Press 1 for yes or 2 for no` and `text_instruction` defaults to
+`(yes/no)`. An empty string suppresses the suffix. Each UI ignores the
+other medium\'s instruction. Text answers remain `yes`/`y` and `no`/`n`.
+Retries repeat the full question and the selected instruction.
+
 Text sessions have an explicit lifecycle. Once `TextUI.hangup()` is
 called, that UI is closed and cannot send or receive further messages. A
 later incoming message starts a new handler with a new `TextUI`. For
