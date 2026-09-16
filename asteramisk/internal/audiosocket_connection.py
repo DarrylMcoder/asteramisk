@@ -131,14 +131,20 @@ class AudioSocketConnectionAsync(AsyncClass):
                 break
 
     async def clear_receive_queue(self):
-        """Clear the receive queue. Discards any audio that has been received but not yet read"""
-        logger.debug("AsyncConnection.clear_receive_queue")
+        """Discard buffered input immediately, without waiting for incoming audio to stop."""
+        discarded_bytes = 0
         while True:
             try:
-                await asyncio.wait_for(self._rx_q.get(), timeout=0.2)
-                self._rx_q.task_done()
-            except asyncio.TimeoutError:
+                audio = self._rx_q.get_nowait()
+            except asyncio.QueueEmpty:
                 break
+            discarded_bytes += len(audio)
+            self._rx_q.task_done()
+        logger.debug(
+            "AsyncConnection.clear_receive_queue: discarded %d bytes of buffered audio",
+            discarded_bytes,
+        )
+        return discarded_bytes
 
     async def drain_send_queue(self):
         logger.debug("AsyncConnection.drain_send_queue")

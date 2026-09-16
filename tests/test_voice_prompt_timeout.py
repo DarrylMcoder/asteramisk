@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from asteramisk.exceptions import InputTimeoutException
+from asteramisk.internal.audiosocket_connection import AudioSocketConnectionAsync
 from asteramisk.internal.transcriber import TranscribeEngine
 from asteramisk.ui.voice_ui import VoiceUI
 
@@ -47,6 +48,69 @@ class VoicePromptTimeoutTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(transcription, "hello")
         ui.stop_speaking.assert_awaited_once()
+
+    async def test_new_prompt_discards_previous_audio_but_keeps_barge_in_audio(self):
+        ui = self.make_ui()
+        stream = object.__new__(AudioSocketConnectionAsync)
+        stream.connected = True
+        stream._from_asterisk_resampler = None
+        stream._rx_q = asyncio.Queue(500)
+        stream.clear_send_queue = AsyncMock()
+        ui.audconn = stream
+        old_audio = b"\x11\x11" * 160
+        current_audio = b"\x22\x22" * 160
+        for _ in range(400):
+            stream._rx_q.put_nowait(old_audio)
+
+        async def finish_previous_playback():
+            stream._rx_q.put_nowait(old_audio)
+
+        async def start_new_question(text):
+            # The caller starts speaking while the new question plays.
+            stream._rx_q.put_nowait(current_audio)
+
+        async def transcribe(hint_phrases, hint_boost):
+            engine = object.__new__(TranscribeEngine)
+            engine.is_transcribing = True
+            requests = engine._transcribe_request_generator(stream)
+            try:
+                await anext(requests)  # Recognition configuration
+                request = await anext(requests)
+                self.assertEqual(request.audio_content, current_audio)
+                self.assertTrue(stream._rx_q.empty())
+                return "Floradale"
+            finally:
+                await requests.aclose()
+
+        async def wait_for_back_or(awaitable):
+            return await awaitable
+
+        ui.done_speaking = finish_previous_playback
+        ui.say = start_new_question
+        ui._transcribe_with_speech_timeout = transcribe
+        ui._wait_for_back_or = wait_for_back_or
+        self.assertEqual(await ui.prompt("Where?"), "Floradale")
+        await asyncio.wait_for(stream._rx_q.join(), timeout=0.1)
+
+    async def test_receive_queue_clear_does_not_wait_for_silence(self):
+        stream = object.__new__(AudioSocketConnectionAsync)
+        stream._rx_q = asyncio.Queue(500)
+        audio = bytes(320)
+        stream._rx_q.put_nowait(audio)
+
+        async def receive_live_audio():
+            while True:
+                stream._rx_q.put_nowait(audio)
+                await asyncio.sleep(0.01)
+
+        producer = asyncio.create_task(receive_live_audio())
+        try:
+            await asyncio.wait_for(stream.clear_receive_queue(), timeout=0.1)
+            self.assertTrue(stream._rx_q.empty())
+            await asyncio.wait_for(stream._rx_q.join(), timeout=0.1)
+        finally:
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
 
     async def test_transcriber_enables_google_speech_start_timeout(self):
         engine = object.__new__(TranscribeEngine)

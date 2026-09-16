@@ -200,6 +200,13 @@ class VoiceUI(UI):
         while True:
             logger.debug(f"VoiceUI.prompt: {text}")
             await self.done_speaking()
+            # Audio received during earlier announcements/menus is not an
+            # answer to this question. Keep new audio for speech barge-in.
+            discarded_bytes = await self.audconn.clear_receive_queue()
+            logger.debug(
+                "VoiceUI.prompt: discarded %s buffered input bytes before new question",
+                discarded_bytes,
+            )
             await self.say(text)
             transcription = await self._wait_for_back_or(
                 self._transcribe_with_speech_timeout(hint_phrases, hint_boost)
