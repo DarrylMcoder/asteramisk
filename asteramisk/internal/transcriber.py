@@ -20,7 +20,7 @@ class TranscribeEngine(AsyncClass):
             self.client = speech.SpeechAsyncClient()
         self.is_transcribing = False
 
-    async def _transcribe_request_generator(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None):
+    async def _transcribe_request_generator(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None, usage=None):
         voice_activity_timeout = None
         if speech_start_timeout is not None:
             timeout = duration_pb2.Duration()
@@ -55,12 +55,17 @@ class TranscribeEngine(AsyncClass):
         )
         while stream.connected and self.is_transcribing:
             audio = await stream.read()
+            if usage is not None:
+                usage["audio_bytes"] += len(audio)
             yield speech.StreamingRecognizeRequest(audio_content=audio)
 
-    async def _transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None):
+    async def _transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None, *, event_callback=None):
+        from asteramisk.events import notify
+        usage = {"audio_bytes": 0}
+        outcome = "returned"
         try:
             responses = await self.client.streaming_recognize(
-                requests=self._transcribe_request_generator(stream, hint_phrases, hint_boost, speech_start_timeout, speech_started),
+                requests=self._transcribe_request_generator(stream, hint_phrases, hint_boost, speech_start_timeout, speech_started, usage),
             )
 
             async for response in responses:
@@ -83,9 +88,17 @@ class TranscribeEngine(AsyncClass):
             return ""
 
         except OutOfRange as e:
+            outcome = "OutOfRange"
             logger.error(e.message)
+        except BaseException as exc:
+            outcome = type(exc).__name__
+            raise
+        finally:
+            notify(event_callback, "speech.recognition", provider="google_speech", model="phone_call",
+                   audio_seconds=usage["audio_bytes"] / 16000, outcome=outcome,
+                   basis="8kHz_mono_PCM_submitted_not_invoice_rounding")
 
-    async def transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None):
+    async def transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, speech_start_timeout: float = None, speech_started: asyncio.Event = None, *, event_callback=None):
         """
         Transcribe audio from a stream
         :param stream: AudioSocketConnectionAsync The stream to transcribe from
@@ -100,12 +113,12 @@ class TranscribeEngine(AsyncClass):
         self.is_transcribing = True
         logger.debug("Transcription started")
         try:
-            return await self._transcribe_from_stream(stream, hint_phrases, hint_boost, speech_start_timeout, speech_started)
+            return await self._transcribe_from_stream(stream, hint_phrases, hint_boost, speech_start_timeout, speech_started, event_callback=event_callback)
         finally:
             self.is_transcribing = False
             logger.debug("Transcription stopped")
 
-    async def streaming_transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0):
+    async def streaming_transcribe_from_stream(self, stream: AudioSocketConnectionAsync, hint_phrases: list = [], hint_boost: float = 10.0, *, event_callback=None):
         """
         Async generator that transcribes audio from a stream, yielding the transcribed text as it is spoken
         :param stream: AudioSocketConnectionAsync The stream to transcribe from
@@ -117,7 +130,7 @@ class TranscribeEngine(AsyncClass):
         self.is_transcribing = True
         try:
             while self.is_transcribing:
-                transcript = await self._transcribe_from_stream(stream, hint_phrases, hint_boost)
+                transcript = await self._transcribe_from_stream(stream, hint_phrases, hint_boost, event_callback=event_callback)
                 yield transcript
 
         finally:

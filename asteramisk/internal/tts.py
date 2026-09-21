@@ -62,7 +62,8 @@ class TTSEngine(AsyncSingleton):
         clean_text = clean_text.replace("--", "-")
         return clean_text
 
-    async def _premium_tts(self, text, voice=None):
+    async def _premium_tts(self, text, voice=None, *, event_callback=None):
+        from asteramisk.events import notify
         voice_params = texttospeech.VoiceSelectionParams(
             language_code='en-US',
             name=voice
@@ -79,9 +80,16 @@ class TTSEngine(AsyncSingleton):
         audio = bytearray()
         for chunk in chunks:
             request = texttospeech.SynthesisInput(text=chunk)
-            response = await self._client.synthesize_speech(
-                input=request, voice=voice_params, audio_config=audio_config
-            )
+            try:
+                response = await self._client.synthesize_speech(
+                    input=request, voice=voice_params, audio_config=audio_config
+                )
+            except BaseException as exc:
+                notify(event_callback, "speech.tts", provider="google_tts", cached=False,
+                       characters=len(chunk), voice=voice, outcome=type(exc).__name__)
+                raise
+            notify(event_callback, "speech.tts", provider="google_tts", cached=False,
+                   characters=len(chunk), voice=voice, outcome="returned")
             audio.extend(response.audio_content)
         return bytes(audio)
 
@@ -108,7 +116,7 @@ class TTSEngine(AsyncSingleton):
 
         return await asyncio.to_thread(sync_tts)
 
-    async def tts(self, text, voice=None, save_to_cache=True):
+    async def tts(self, text, voice=None, save_to_cache=True, *, event_callback=None):
         """
         Asynchronously convert text to audio and stream it to the given stream
         """
@@ -117,16 +125,27 @@ class TTSEngine(AsyncSingleton):
         cached_audio = await self.get_from_cache(text, voice)
         if cached_audio is not None:
             logger.debug("TTSEngine.tts: using cached audio file")
+            from asteramisk.events import notify
+            notify(event_callback, "speech.tts", cached=True, characters=len(text), voice=voice)
             return cached_audio
 
         # Not cached, convert text to audio
         audio = None
-        if not voice or not config.GOOGLE_APPLICATION_CREDENTIALS:
-            # Voice not specified or no credentials, so use gTTS which is free and requires no credentials
-            audio = await self._free_tts(text)
-        else:
-            # Use google cloud tts which requires credentials
-            audio = await self._premium_tts(text, voice)
+        from asteramisk.events import notify
+        provider = "gtts" if not voice or not config.GOOGLE_APPLICATION_CREDENTIALS else "google_tts"
+        try:
+            if provider == "gtts":
+                audio = await self._free_tts(text)
+            else:
+                audio = await self._premium_tts(text, voice, event_callback=event_callback)
+        except BaseException as exc:
+            if provider == "gtts":
+                notify(event_callback, "speech.tts", cached=False, characters=len(text), voice=voice,
+                       provider=provider, outcome=type(exc).__name__)
+            raise
+        if provider == "gtts":
+            notify(event_callback, "speech.tts", cached=False, characters=len(text), voice=voice,
+                   provider=provider, outcome="returned", audio_seconds=len(audio or b"") / 16000)
 
         # Trim the chirp 
         if audio and len(audio) > 0:
@@ -147,12 +166,12 @@ class TTSEngine(AsyncSingleton):
             logger.error("TTSEngine.tts: no audio returned")
         return audio
 
-    async def tts_to_stream(self, text, stream, voice=None):
-        audio = await self.tts(text, voice)
+    async def tts_to_stream(self, text, stream, voice=None, *, event_callback=None):
+        audio = await self.tts(text, voice, event_callback=event_callback)
         await stream.write(audio)
         return
 
-    async def tts_to_file(self, text, voice=None, ast_filename=True):
+    async def tts_to_file(self, text, voice=None, ast_filename=True, *, event_callback=None):
         """
         Convert text to audio and save it to a file
         :param text: The text to convert to audio
@@ -162,7 +181,7 @@ class TTSEngine(AsyncSingleton):
         will be the full path to the file.
         :return: The filename of the audio file.
         """
-        audio = await self.tts(text, voice, save_to_cache=False)
+        audio = await self.tts(text, voice, save_to_cache=False, event_callback=event_callback)
         filename = await self.save_to_cache(audio, text, voice)
         logger.info(f"TTSEngine.tts_to_file: saved audio file to {filename}")
         if ast_filename:

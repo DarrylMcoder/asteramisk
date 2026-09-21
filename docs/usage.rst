@@ -133,3 +133,58 @@ key 5 to pause or resume, and key 6 to skip forward. ``skip_seconds`` is
 keyword-only and defaults to three seconds. VoiceUI converts the interval to
 whole milliseconds for Asterisk. Use a positive, finite interval of at least
 one millisecond. TextUI accepts the same argument but simply sends the text.
+
+Optional activity events
+------------------------
+
+Register a synchronous, lightweight listener on an individual UI::
+
+    def receive_event(event):
+        queue.put_nowait(event)  # Your application owns this bounded queue.
+
+    unsubscribe = ui.add_event_listener(receive_event)
+    try:
+        await run_service(ui)
+    finally:
+        unsubscribe()
+        # Your application may now drain its queue with a bounded timeout.
+
+An ``asteramisk.events.UIEvent`` has ``id``, timezone-aware UTC ``occurred_at``,
+``kind``, and a ``data`` dictionary. Treat events as read-only. Listeners run
+on the call's asyncio loop; they must not block, write to a database, or return
+an awaitable. Exceptions are caught without logging payloads. With no listener,
+operations proceed normally. Registration returns an idempotent unsubscribe
+function. The library stores no events and performs no price calculations.
+
+Available events and fields:
+
+* ``speech.tts``: cache hit, voice, character count; provider and outcome for
+  generated audio. Google usage is reported per actual request chunk, including
+  successful chunks preceding a failure. No text or audio is included.
+* ``speech.recognition``: provider/model, submitted audio seconds, outcome.
+  This is measured PCM usage, not provider billing rounding; no transcript.
+* ``speech_input.started/ended`` and ``speech_input.result``: operation ID,
+  elapsed seconds, outcome, empty input. Text prompts use ``text_input``.
+* ``menu.action.started/ended``: callback name, operation ID, elapsed time,
+  outcome. Keypad values and callback arguments are never included.
+* ``content.playback.started/ended``: controlled-playback operation lifecycle.
+* ``realtime.started/ended``: agent, model, operation ID, outcome, elapsed time.
+  This operation ID is the ``segment_id`` on the following events.
+* ``realtime.usage``: response ID, model, raw token usage, status, segment ID.
+* ``realtime.response_started``: response ID and segment ID, allowing consumers
+  to identify responses that end without returned usage.
+* ``conversation.input``: transcript/text, item ID when available, segment ID,
+  and separate input-transcription usage when supplied by the provider.
+* ``conversation.output``: generated answer, response/item/segment IDs, status.
+* ``realtime.audio_end/audio_interrupted/error``: selected SDK notifications.
+
+Conversation content is exposed only during explicit agent conversations.
+Do not register a persistent recorder where collecting that content is unwanted.
+Generated output and SDK audio-end events are not proof the caller heard the
+whole answer. Input transcription has separate usage from realtime responses.
+See the `OpenAI realtime documentation <https://developers.openai.com/api/docs/guides/realtime-conversations>`_.
+
+UI methods pass a request-scoped ``event_callback`` to speech engines. The
+shared TTS engine never retains a caller's callback. Direct engine callers may
+provide this optional keyword themselves. Preserve it when implementing a custom
+engine if events are required. Listener failure does not change call navigation.

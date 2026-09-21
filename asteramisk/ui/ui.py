@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from asteramisk.config import config
 from asteramisk.exceptions import GoBackException, GuardrailTriggeredRecoveryException, InputTimeoutException
 from asteramisk.internal.async_class import AsyncClass
+from asteramisk.events import notify, operation
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,7 +37,39 @@ class UI(AsyncClass):
         # Keep this in a mutable object so UI wrappers that forward attributes
         # share the same state instead of shadowing an integer locally.
         self._menu_navigation_state = _MenuNavigationState()
+        self._event_listeners = []
         await super().__create__()
+
+    def add_event_listener(self, listener):
+        """Register a synchronous listener for this UI; return an unsubscribe function."""
+        import inspect
+        if inspect.iscoroutinefunction(listener):
+            raise TypeError("Listeners must enqueue work synchronously")
+        listeners = getattr(self, "_event_listeners", None)
+        if listeners is None:
+            self._event_listeners = listeners = []
+        if listener not in listeners:
+            listeners.append(listener)
+        def unsubscribe():
+            if listener in listeners:
+                listeners.remove(listener)
+        return unsubscribe
+
+    def emit_event(self, kind, **data):
+        notify(self._dispatch_event, kind, **data)
+
+    def _dispatch_event(self, event):
+        from asteramisk.events import logger
+        for listener in tuple(getattr(self, "_event_listeners", ())):
+            try:
+                result = listener(event)
+                import inspect
+                if inspect.isawaitable(result):
+                    if inspect.iscoroutine(result):
+                        result.close()
+                    logger.warning("Event listeners must be synchronous")
+            except Exception:
+                logger.warning("Event listener failed for %s", event.kind)
 
     async def __aenter__(self):
         await self.answer()
@@ -215,7 +248,8 @@ class UI(AsyncClass):
         try:
             self._menu_navigation_state.callback_depth += 1
             try:
-                result = await callback(*args)
+                with operation(self._dispatch_event, "menu.action", action=getattr(callback, "__name__", type(callback).__name__)):
+                    result = await callback(*args)
                 if self.ui_type == self.UIType.VOICE:
                     await self.done_speaking()
                 return result

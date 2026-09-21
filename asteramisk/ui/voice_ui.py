@@ -11,6 +11,7 @@ from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, RealtimeSessionModelSettings
 
 from asteramisk.config import config
+from asteramisk.events import operation, realtime_event, reports_operation
 from asteramisk.ui import UI
 from asteramisk.exceptions import HangupException, GoBackException, InputTimeoutException
 from asteramisk.internal.tts import TTSEngine
@@ -208,9 +209,11 @@ class VoiceUI(UI):
                 discarded_bytes,
             )
             await self.say(text)
-            transcription = await self._wait_for_back_or(
-                self._transcribe_with_speech_timeout(hint_phrases, hint_boost)
-            )
+            with operation(self._dispatch_event, "speech_input"):
+                transcription = await self._wait_for_back_or(
+                    self._transcribe_with_speech_timeout(hint_phrases, hint_boost)
+                )
+                self.emit_event("speech_input.result", empty=not bool(transcription))
             logger.debug(f"VoiceUI.prompt transcription: {transcription}")
             # Immediately stop audio playback when we get the transcription
             await self.audconn.clear_send_queue()
@@ -229,6 +232,7 @@ class VoiceUI(UI):
                 hint_phrases=hint_phrases,
                 hint_boost=hint_boost,
                 speech_started=speech_started,
+                event_callback=self._dispatch_event,
             )
         )
         timeout_task = asyncio.create_task(
@@ -330,7 +334,7 @@ class VoiceUI(UI):
         Returns an async generator that yields transcriptions as they come
         """
         try:
-            stream = self.transcribe_engine.streaming_transcribe_from_stream(self.audconn)
+            stream = self.transcribe_engine.streaming_transcribe_from_stream(self.audconn, event_callback=self._dispatch_event)
             try:
                 while True:
                     try:
@@ -490,6 +494,7 @@ class VoiceUI(UI):
                         elif event.type == "error":
                             pass
 
+                        realtime_event(self._dispatch_event, event, model, segment_id)
                         # Yield the event so the caller can use it
                         yield event
 
@@ -512,9 +517,11 @@ class VoiceUI(UI):
                 yield event
 
         await self.done_speaking()
-        async with aclosing(_gen()) as events:
-            async with aclosing(interruptible_events(events)) as output:
-                yield output
+        with operation(self._dispatch_event, "realtime", agent=agent.name,
+                       model=model or config.DEFAULT_REALTIME_GPT_MODEL) as segment_id:
+            async with aclosing(_gen()) as events:
+                async with aclosing(interruptible_events(events)) as output:
+                    yield output
 
     async def bridge(self, ui, absorbDTMF: bool = False, mute: bool = False):
         """
@@ -553,6 +560,7 @@ class VoiceUI(UI):
 
     ### Voice UI specific methods ###
 
+    @reports_operation("content.playback")
     async def control_say(self, text, *, skip_seconds=3):
         """Read text with playback controls and a positive skip interval in seconds."""
         if (isinstance(skip_seconds, bool) or not isinstance(skip_seconds, (int, float))
@@ -563,7 +571,7 @@ class VoiceUI(UI):
         logger.debug("VoiceUI.control_say")
         # Speak text, allowing rewind and fast forward
         filename = await self._wait_for_back_or(
-            self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True)
+            self.tts_engine.tts_to_file(text=text, voice=self.voice, ast_filename=True, event_callback=self._dispatch_event)
         )
         # Since this doesn't actually use the queue, make sure this doesn't interfere with previously queued audio
         await self.done_speaking()
@@ -760,7 +768,7 @@ class VoiceUI(UI):
                     num_samples = round(output.seconds * ASTERISK_SAMPLE_RATE)
                     audio = b'\x00\x00' * num_samples
                 else:
-                    audio = await self.tts_engine.tts(text=output, voice=self.voice)
+                    audio = await self.tts_engine.tts(text=output, voice=self.voice, event_callback=self._dispatch_event)
                 # Wait for the previous audio to finish playing, so that we don't get way out of sync
                 await self.audconn.drain_send_queue()
                 await self.audconn.write(audio)

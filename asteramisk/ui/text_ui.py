@@ -5,6 +5,7 @@ from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
 
 from asteramisk.ui import UI
+from asteramisk.events import operation, realtime_event, reports_operation
 from asteramisk.config import config
 from asteramisk.exceptions import HangupException, InputTimeoutException, GoBackException
 from asteramisk.config import config
@@ -93,6 +94,7 @@ class TextUI(UI):
                     with suppress(asyncio.CancelledError):
                         await task
 
+    @reports_operation("content.playback")
     async def control_say(self, text, *, skip_seconds=3):
         """Send text; playback controls and skip_seconds do not apply to text."""
         await self.say(text)
@@ -122,6 +124,7 @@ class TextUI(UI):
         self._ensure_active()
         await asyncio.sleep(seconds)
 
+    @reports_operation("text_input")
     async def prompt(self, text):
         """
         Prompt the user for input
@@ -205,6 +208,7 @@ class TextUI(UI):
             while self.is_active:
                 logger.debug("TextUI.run_realtime_agent: waiting for message")
                 message = await self._receive_message()
+                self.emit_event("conversation.input", text=message, segment_id=segment_id, modality="text")
                 await session.send_message(message)
             raise HangupException("TextUI closed during agent conversation")
 
@@ -233,6 +237,7 @@ class TextUI(UI):
                             return
                         if event.type == "error":
                             logger.error(f"OpenAI session error: {event}")
+                        realtime_event(self._dispatch_event, event, model, segment_id)
                         yield event
                 finally:
                     if event_task is not None and not event_task.done():
@@ -243,8 +248,9 @@ class TextUI(UI):
                     with suppress(asyncio.CancelledError, GoBackException, HangupException):
                         await message_task
 
-        async with aclosing(_gen()) as events:
-            yield events
+        with operation(self._dispatch_event, "realtime", agent=agent.name, model=model) as segment_id:
+            async with aclosing(_gen()) as events:
+                yield events
 
     async def bridge(self, ui):
         """
