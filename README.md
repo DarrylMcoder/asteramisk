@@ -289,6 +289,13 @@ yielded stream inside its context. Read more about OpenAI agents in the
 \[OpenAI
 documentation\](<https://platform.openai.com/docs/guides/agents>).
 
+# Menu back navigation
+
+When star navigation is enabled, pressing `*` in a submenu returns to
+its parent menu. A back event that reaches the root menu keeps the
+caller at the root. Menu replay uses a loop, so another pending back
+event during replay does not escape the menu or add a recursive call.
+
 # Controlled playback
 
 `await ui.control_say(text, skip_seconds=15)` reads text with key 4 to

@@ -210,54 +210,52 @@ class UI(AsyncClass):
         else:
             raise ValueError("No callbacks provided")
 
-        # Loop until a valid option is selected
+        # A menu entered from a callback is a submenu. Back leaves that submenu;
+        # back reaching the root simply keeps the caller at the root menu.
+        entry_depth = self._menu_navigation_state.callback_depth
         retry_reason = ""
         no_input_attempts = 0
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
         while True:
-            say_text = self._join_prompt_parts(retry_reason, text)
-            # Prompt the user to select an option
-            # Kinda breaking my style here, but I think we should use digit menus for voice UIs and text menus for text UIs
-            if self.ui_type == self.UIType.VOICE:
-                num_digits = max([len(str(i)) for i in local_callbacks.keys()])
-                selected = await self.gather(say_text, num_digits)
-            elif self.ui_type == self.UIType.TEXT:
-                selected = await self.prompt(say_text)
-            selected = str(selected).strip()
-            if not selected:
-                no_input_attempts += 1
-                if max_attempts is not None and no_input_attempts >= max_attempts:
-                    raise InputTimeoutException("No input received for too many consecutive prompts")
-            else:
-                no_input_attempts = 0
-            if selected not in local_callbacks:
-                if selected:
-                    retry_reason = "That wasn't one of the choices. Please try again."
-                else:
-                    retry_reason = "I didn't receive a selection. Please try again."
-                continue
-            # Break the loop if a valid option is selected
-            break
-
-        # Allow for callbacks with arguments
-        if isinstance(local_callbacks[selected], tuple):
-            callback, args = local_callbacks[selected]
-        else:
-            callback = local_callbacks[selected]
-            args = ()
-        try:
-            self._menu_navigation_state.callback_depth += 1
             try:
-                with operation(self._dispatch_event, "menu.action", action=getattr(callback, "__name__", type(callback).__name__)):
-                    result = await callback(*args)
+                say_text = self._join_prompt_parts(retry_reason, text)
                 if self.ui_type == self.UIType.VOICE:
-                    await self.done_speaking()
-                return result
-            finally:
-                self._menu_navigation_state.callback_depth -= 1
-        except GoBackException:
-            # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
-            return await self.menu(text, callbacks, voice_callbacks, text_callbacks, max_attempts)
+                    num_digits = max([len(str(i)) for i in local_callbacks.keys()])
+                    selected = await self.gather(say_text, num_digits)
+                elif self.ui_type == self.UIType.TEXT:
+                    selected = await self.prompt(say_text)
+                selected = str(selected).strip()
+                if not selected:
+                    no_input_attempts += 1
+                    if max_attempts is not None and no_input_attempts >= max_attempts:
+                        raise InputTimeoutException("No input received for too many consecutive prompts")
+                else:
+                    no_input_attempts = 0
+                if selected not in local_callbacks:
+                    if selected:
+                        retry_reason = "That wasn't one of the choices. Please try again."
+                    else:
+                        retry_reason = "I didn't receive a selection. Please try again."
+                    continue
+
+                if isinstance(local_callbacks[selected], tuple):
+                    callback, args = local_callbacks[selected]
+                else:
+                    callback = local_callbacks[selected]
+                    args = ()
+                self._menu_navigation_state.callback_depth += 1
+                try:
+                    with operation(self._dispatch_event, "menu.action", action=getattr(callback, "__name__", type(callback).__name__)):
+                        result = await callback(*args)
+                    if self.ui_type == self.UIType.VOICE:
+                        await self.done_speaking()
+                    return result
+                finally:
+                    self._menu_navigation_state.callback_depth -= 1
+            except GoBackException:
+                if entry_depth > 0:
+                    raise
+                retry_reason = ""
 
     async def select(self, text, options: dict[str, Any] = None, voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None, max_attempts=None):
         """
