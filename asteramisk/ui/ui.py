@@ -210,7 +210,7 @@ class UI(AsyncClass):
         else:
             raise ValueError("No callbacks provided")
 
-        # Loop until a valid option is selected
+        # Replay this menu without adding another call frame when a callback goes back.
         retry_reason = ""
         no_input_attempts = 0
         max_attempts = config.MAX_NO_INPUT_ATTEMPTS if max_attempts is None else max_attempts
@@ -236,28 +236,25 @@ class UI(AsyncClass):
                 else:
                     retry_reason = "I didn't receive a selection. Please try again."
                 continue
-            # Break the loop if a valid option is selected
-            break
-
-        # Allow for callbacks with arguments
-        if isinstance(local_callbacks[selected], tuple):
-            callback, args = local_callbacks[selected]
-        else:
-            callback = local_callbacks[selected]
-            args = ()
-        try:
+            # Only back events from the callback return here. A back event while
+            # reading this menu's choice belongs to its parent menu.
+            if isinstance(local_callbacks[selected], tuple):
+                callback, args = local_callbacks[selected]
+            else:
+                callback = local_callbacks[selected]
+                args = ()
             self._menu_navigation_state.callback_depth += 1
             try:
-                with operation(self._dispatch_event, "menu.action", action=getattr(callback, "__name__", type(callback).__name__)):
-                    result = await callback(*args)
-                if self.ui_type == self.UIType.VOICE:
-                    await self.done_speaking()
-                return result
-            finally:
-                self._menu_navigation_state.callback_depth -= 1
-        except GoBackException:
-            # Catch GoBackException from the submenu (callback) and replay this menu, which is the previous menu to the submenu
-            return await self.menu(text, callbacks, voice_callbacks, text_callbacks, max_attempts)
+                try:
+                    with operation(self._dispatch_event, "menu.action", action=getattr(callback, "__name__", type(callback).__name__)):
+                        result = await callback(*args)
+                    if self.ui_type == self.UIType.VOICE:
+                        await self.done_speaking()
+                    return result
+                finally:
+                    self._menu_navigation_state.callback_depth -= 1
+            except GoBackException:
+                retry_reason = ""
 
     async def select(self, text, options: dict[str, Any] = None, voice_options: dict[str, Any] = None, text_options: dict[str, Any] = None, max_attempts=None):
         """

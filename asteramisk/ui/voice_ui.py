@@ -662,7 +662,8 @@ class VoiceUI(UI):
         if self._go_back_event.is_set():
             await self._go_back_cleanup_done.wait()
             self._go_back_event.clear()
-            raise GoBackException("User pressed * to go back")
+            if self._menu_navigation_state.callback_depth > 0:
+                raise GoBackException("User pressed * to go back")
 
     async def _wait_for_back_or(self, awaitable):
         """Run a VoiceUI operation, interrupting it when * is pressed."""
@@ -675,10 +676,11 @@ class VoiceUI(UI):
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if back_task in done:
-                operation_task.cancel()
-                with suppress(asyncio.CancelledError, Exception):
-                    await operation_task
                 await self._check_go_back()
+                # A back event left over at the root is ignored. Keep the
+                # operation running in that case; the finally block cancels it
+                # if _check_go_back() raises for an active submenu.
+                return await operation_task
             return operation_task.result()
         finally:
             if not operation_task.done():
