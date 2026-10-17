@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from contextlib import suppress, asynccontextmanager, aclosing
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner, RealtimeRunConfig, RealtimeSessionModelSettings
+from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 
 from asteramisk.config import config
 from asteramisk.events import operation, realtime_event, reports_operation
@@ -396,7 +397,7 @@ class VoiceUI(UI):
         Connects a realtime agent to the UI
         For cheaper and slower non-realtime agents, use the run_agent method.
         :param agent: The OpenAI agents.realtime.RealtimeAgent to connect to
-        :param talk_first: Whether or not to cause the agent to speak first. If False, the agent will wait for the user to speak
+        :param talk_first: Start a response from the agent's instructions. If False, wait for the user to speak.
         :param model: The openai model to use for the agent
         :param voice: The voice to use for the agent. Some options are cedar (male) and marin (female)
         :param context: The context to use for the agent. This is passed to any agent tool calls, etc. Read about it in the OpenAI agents docs
@@ -457,9 +458,11 @@ class VoiceUI(UI):
             async with await runner.run(context=context) as session:
                 asterisk_to_agent_task = None
                 try:
-                    # Make the agent greet the caller if talk_first
+                    # Start from agent instructions without inventing caller speech.
                     if talk_first:
-                        await session.send_message("New call, greet the caller.")
+                        await session.model.send_event(
+                            RealtimeModelSendRawMessage(message={"type": "response.create"})
+                        )
 
                     # Start task to send audio from Asterisk to the agent
                     asterisk_to_agent_task = asyncio.create_task(asterisk_to_agent_looper(session))

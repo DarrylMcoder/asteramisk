@@ -3,6 +3,7 @@ import math
 from contextlib import asynccontextmanager, suppress, aclosing
 from agents import TContext
 from agents.realtime import RealtimeAgent, RealtimeRunner
+from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 
 from asteramisk.ui import UI
 from asteramisk.events import operation, realtime_event, reports_operation
@@ -215,7 +216,9 @@ class TextUI(UI):
         async def _gen():
             async with await runner.run(context=context) as session:
                 if talk_first:
-                    await session.send_message("New conversation, greet the user.")
+                    await session.model.send_event(
+                        RealtimeModelSendRawMessage(message={"type": "response.create"})
+                    )
                 message_task = asyncio.create_task(message_loop(session))
                 event_task = None
                 try:

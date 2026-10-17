@@ -35,12 +35,18 @@ class RealtimeLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Future()
 
         stream = events()
-        session = SimpleNamespace(send_message=AsyncMock())
+        ui._test_send_message = AsyncMock()
+        ui._test_send_event = AsyncMock()
+        session = SimpleNamespace(
+            send_message=ui._test_send_message,
+            model=SimpleNamespace(send_event=ui._test_send_event),
+        )
 
         class Session:
             def __aiter__(self):
                 return stream
             send_message = session.send_message
+            model = session.model
 
         @asynccontextmanager
         async def running():
@@ -54,6 +60,28 @@ class RealtimeLifecycleTests(unittest.IsolatedAsyncioTestCase):
         runner.run = AsyncMock(side_effect=lambda **kwargs: running())
         module = "voice_ui" if voice else "text_ui"
         return ui, patch(f"asteramisk.ui.{module}.RealtimeRunner", return_value=runner)
+
+    async def test_talk_first_starts_response_without_user_message(self):
+        for voice in (True, False):
+            with self.subTest(voice=voice):
+                ui, patched = self.setup_ui(voice)
+                with patched:
+                    async with ui.run_realtime_agent(RealtimeAgent(name="test")) as events:
+                        await anext(events)
+                ui._test_send_event.assert_awaited_once()
+                event = ui._test_send_event.await_args.args[0]
+                self.assertEqual(event.message, {"type": "response.create"})
+                ui._test_send_message.assert_not_awaited()
+
+    async def test_talk_first_false_waits_for_user_input(self):
+        for voice in (True, False):
+            with self.subTest(voice=voice):
+                ui, patched = self.setup_ui(voice)
+                with patched:
+                    async with ui.run_realtime_agent(RealtimeAgent(name="test"), talk_first=False) as events:
+                        await anext(events)
+                ui._test_send_event.assert_not_awaited()
+                ui._test_send_message.assert_not_awaited()
 
     async def test_early_exit_closes_session_and_input_on_both_interfaces(self):
         for voice in (True, False):

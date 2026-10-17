@@ -115,6 +115,12 @@ using text-only modalities:
             async for event in session:
                 pass
 
+By default, ``talk_first=True`` starts an assistant response using the
+agent's instructions. Set ``talk_first=False`` to wait for the caller's first
+message or speech. The initial response does not add a synthetic user message
+to the conversation, so put any required opening wording in the agent's
+instructions.
+
 Do not use ``await`` before either context-manager method.
 Leaving ``run_realtime_agent()`` closes its event stream and SDK session and
 stops its input task, including after an early ``break`` or an exception.
