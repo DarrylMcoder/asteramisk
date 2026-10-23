@@ -244,6 +244,37 @@ set to `None`, `voice_instruction` defaults to
 other medium\'s instruction. Text answers remain `yes`/`y` and `no`/`n`.
 Retries repeat the full question and the selected instruction.
 
+## No-input timeouts and call completion
+
+`menu()`, `select()`, `prompt()`, and `ask_yes_no()` raise
+`InputTimeoutException` after consecutive unanswered prompts. By
+default, the limit is `MAX_NO_INPUT_ATTEMPTS` (three); pass
+`max_attempts` to a method to override it. The lower-level
+`VoiceUI.gather()` returns an empty string when no digits arrive and
+does not raise this exception itself.
+
+A voice call handler may let `InputTimeoutException` propagate. The
+server then says
+`I still haven't received a response, so I'll end the call now. Goodbye.`,
+waits for that message to finish, and hangs up. This wording covers both
+speech and keypad input. To use different wording, catch the exception
+in your call handler, say the custom message, and call `ui.hangup()`:
+
+    from asteramisk.exceptions import InputTimeoutException
+
+    async def my_call_handler(ui: VoiceUI):
+        try:
+            await ui.ask_yes_no("Would you like to continue?")
+        except InputTimeoutException:
+            await ui.say("No response received. Please call again later. Goodbye.")
+            await ui.hangup()
+
+Do not re-raise the exception after the custom message; that would also
+invoke the server\'s default timeout response. If a voice call handler
+returns while the call is still active, the server says
+`Thank you for calling. Goodbye.` and hangs up. A handler that has
+already called `ui.hangup()` does not receive that additional message.
+
 Text sessions have an explicit lifecycle. Once `TextUI.hangup()` is
 called, that UI is closed and cannot send or receive further messages. A
 later incoming message starts a new handler with a new `TextUI`. For
@@ -276,6 +307,12 @@ async with ui.run_realtime_agent(agent) as session:
     async for event in session:
         pass
 ```
+
+By default, `talk_first=True` starts an assistant response using the
+agent\'s instructions. Set `talk_first=False` to wait for the caller\'s
+first message or speech. The initial response does not add a synthetic
+user message to the conversation, so put any required opening wording in
+the agent\'s instructions.
 
 Do not use `await` before either context-manager method. Leaving
 `run_realtime_agent()` closes its event stream and SDK session and stops

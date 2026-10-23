@@ -366,14 +366,16 @@ class Server(AsyncClass):
                 call_handler, _ = self.handlers[extension]
                 try:
                     await call_handler(ui)
-                    # Give some indication that the call_handler has finished, which is probably not intended
-                    await ui.say("Thank you for calling. Goodbye.")
+                    # A handler may have ended the call itself after custom wording.
+                    if ui.is_active:
+                        await ui.say("Thank you for calling. Goodbye.")
+                        await ui.hangup()
                 except asyncio.CancelledError:
                     # CancelledError must be propagated, see note in _main_handler
                     raise
                 except InputTimeoutException:
                     logger.warning("Input timed out for call %s", channel.id)
-                    await ui.say("I still didn't hear a response, so I'll end the call now. Goodbye.")
+                    await ui.say("I still haven't received a response, so I'll end the call now. Goodbye.")
                     await ui.hangup()
                 except Exception as e:
                     logger.exception(e)
